@@ -1,5 +1,5 @@
 import sys
-
+import time
 import numpy as np
 import scipy
 import pyarrow
@@ -159,7 +159,9 @@ omega_0 = np.array([df["gyroADC[0]"].values[0],
 A = []
 inertiaMatrix = None
 inertiaMatrix_0 = None
+inertias = []
         # x = np.linalg.solve(np.matmul(a.T, a), np.zeros(6))
+start_time = time.time()
 for r in df.rolling(window=1):
     t = r['time'].values[0] / 1e6
     o = np.array([romega_x.predict(t.reshape(1, -1)),
@@ -182,11 +184,13 @@ for r in df.rolling(window=1):
         # x, r, R, s = np.linalg.lstsq(a.astype('float'), b.astype('float'), rcond=-1)
         eigen_values, eigen_vectors = np.linalg.eig(np.matmul(a.T, A))
         x = eigen_vectors[:, eigen_values.argmin()]
-
+        inertias.extend(x)
         global I
-        if len(A) == 6:
-            inertiaMatrix_0 = create_I(x)
         inertiaMatrix = create_I(x)
+        if len(A) == 6*15:
+            inertiaMatrix_0 = create_I(x)
+            print("Test took %s seconds" % (time.time() - start_time))
+print("Full took %s seconds" % (time.time() - start_time))
 
 # sys.exit()
 
@@ -207,7 +211,7 @@ for r in df.rolling(window=2):
     t_1 = r['time'].values[0] / 1e6
     t_2 = r['time'].values[1] / 1e6
     dt = t_2 - t_1
-    ddt = dt/8000
+    ddt = dt/1000
     i = 0
     inv = np.linalg.inv(inertiaMatrix)
     inv_f = np.linalg.inv(inertiaMatrix_0)
@@ -231,7 +235,26 @@ plt.plot(Time, X)
 plt.plot(Time, Y)
 plt.plot(Time, Z)
 
-plt.plot(Time, X_f)
-plt.plot(Time, Y_f)
-plt.plot(Time, Z_f)
+# plt.plot(Time, X_f)
+# plt.plot(Time, Y_f)
+# plt.plot(Time, Z_f)
 plt.show()
+
+# error = []
+# for i in range(len(inertias)//6):
+#     e = 0
+#     for j in range(1, 7):
+#         e += abs(inertias[0::j][i] - inertias[0::j][-1])
+#     error.append(e)
+
+# ax = plt.figure().add_subplot(111)
+# # print(inertias[0::6])
+# plt.plot(inertias[0::6])
+# plt.plot(inertias[1::6])
+# plt.plot(inertias[2::6])
+# plt.plot(inertias[3::6])
+# plt.plot(inertias[4::6])
+# plt.plot(inertias[5::6])
+# # plt.plot(error)
+# ax.set_yscale('log')
+# plt.show()
