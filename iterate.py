@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import scipy
 import pyarrow
@@ -51,20 +53,19 @@ romega_z = make_pipeline(PolynomialFeatures(degree=fit_degree), LinearRegression
 romega_z.fit(T, omega_z)
 romega_dot_z = np.polyder(np.flip(romega_z.named_steps.linearregression.coef_).reshape(-1))
 
-X = np.arange(min(T), max(T), 0.01).reshape(-1, 1)
+T = np.arange(min(T), max(T), 0.01).reshape(-1, 1)
 
-plt.plot(X, romega_x.predict(X))
-# plt.plot(X, np.polyval(romega_dot_x, X))
+plt.plot(T, romega_x.predict(T), color="gray", linestyle="dashed")
+# plt.plot(T, np.polyval(romega_dot_x, X))
 # plt.plot(df["time"]/1e6, df["gyroADC[0]"])
 
-plt.plot(X, romega_y.predict(X))
-# plt.plot(X, np.polyval(romega_dot_y, X))
+plt.plot(T, romega_y.predict(T), color="gray", linestyle="dashed")
+# plt.plot(T, np.polyval(romega_dot_y, X))
 # plt.plot(df["time"]/1e6, df["gyroADC[1]"])
 #
-plt.plot(X, romega_z.predict(X))
-# plt.plot(X, np.polyval(romega_dot_z, X))
+plt.plot(T, romega_z.predict(T), color="gray", linestyle="dashed")
+# plt.plot(T, np.polyval(romega_dot_z, X))
 # plt.plot(df["time"]/1e6, df["gyroADC[2]"])
-plt.show()
 
 def create_I(x):
     return np.array([[x[0], x[1], x[3]],
@@ -81,65 +82,156 @@ def iterate(omega_1, omega_dot_1, omega_2, omega_dot_2):
 
     X = scipy.optimize.fsolve(it, np.ones(6))
     M = it(X)
-    error = np.matmul(M.reshape(1, -1), M.reshape(-1, 1)).reshape(-1)[0]
+    print(M)
+    # error = np.matmul(M.reshape(1, -1), M.reshape(-1, 1)).reshape(-1)[0]
     # print("Error: ", error)
     # print(it(X))
     return create_I(X)
 
+
 def iterate_2(df, omega_0):
+    x_0 = np.zeros(6)
     def it(x):
-        error = np.zeros(6)
         omega = omega_0
         # omega_dot = omega_dot_0
+        error = np.zeros(6)
+        t_0 = df['time'].values[0]
+        t_end = df['time'].values[-1]
+        t_diff = t_end-t_0
+        i = 0
         for r in df.rolling(window=2):
             if len(r) < 2:
+                i += 1
                 continue
             _I = create_I(x)
 
             t_1 = r['time'].values[0] / 1e6
             t_2 = r['time'].values[1] / 1e6
-            dt = t_2-t_1
-            omega_dot = np.matmul(np.linalg.inv(_I), -np.cross(omega, np.matmul(_I, omega)))
-            omega += omega_dot * dt
+            # if i == 1:
+            #     global x_0
+            #     x_0 = iterate(np.array([romega_x.predict(t_1.reshape(1, -1)),
+            #                             romega_y.predict(t_1.reshape(1, -1)),
+            #                             romega_z.predict(t_1.reshape(1, -1))]).reshape(-1),
+            #                   np.array([np.polyval(romega_dot_x, t_1),
+            #                             np.polyval(romega_dot_y, t_1),
+            #                             np.polyval(romega_dot_z, t_1)]).reshape(-1),
+            #                   np.array([romega_x.predict(t_2.reshape(1, -1)),
+            #                             romega_y.predict(t_2.reshape(1, -1)),
+            #                             romega_z.predict(t_2.reshape(1, -1))]).reshape(-1),
+            #                   np.array([np.polyval(romega_dot_x, t_2),
+            #                             np.polyval(romega_dot_y, t_2),
+            #                             np.polyval(romega_dot_z, t_2)]).reshape(-1))
+            #     print(x_0)
+            #     print(np.linalg.det(x_0))
+            dt = t_2 - t_1
+            ddt = dt / 150
+            omega_dot = None
+            for t in np.arange(t_1, t_2, ddt):
+                omega_dot = np.matmul(np.linalg.inv(_I), -np.cross(omega, np.matmul(_I, omega)))
+                # print(omega_dot)
+                omega = omega + omega_dot * ddt
             omega_error = omega - np.array([romega_x.predict(t_2.reshape(1, -1)),
                                             romega_y.predict(t_2.reshape(1, -1)),
                                             romega_z.predict(t_2.reshape(1, -1))]).reshape(-1)
-            omega_dot_error = omega_dot - np.array([np.polyval(romega_dot_x, t_1),
-                                                    np.polyval(romega_dot_y, t_1),
-                                                    np.polyval(romega_dot_z, t_1)]).reshape(-1)
-            return np.array([omega_error, omega_dot_error]).reshape(-1)
-    X = scipy.optimize.fsolve(it, np.matrix([1, 2, 3, -1, -2, -3, -2, 3, -2]))
+            omega_dot_error = omega_dot - np.array([np.polyval(romega_dot_x, t_2),
+                                                    np.polyval(romega_dot_y, t_2),
+                                                    np.polyval(romega_dot_z, t_2)]).reshape(-1)
+            error += abs(np.array([omega_error, omega_dot_error])).reshape(-1)
+            # if t_2 >= t_0 + t_diff:
+            #     break
+        return error
+    X = scipy.optimize.fsolve(it, np.array([1, 0.1, 1, -0.1, 0, 1]))
     M = it(X)
 
     error = np.matmul(M.reshape(1, -1), M.reshape(-1, 1)).reshape(-1)[0]
-    # print("Error: ", error)
+    # print(error)
+    print("Error: ", error)
     # print(it(X))
     return create_I(X)
 
-# for r in df.rolling(window=2):
-#     # if len(r) < 2 or (math.isnan(r['md_gyroADC[0]'].values[0]) or math.isnan(r['md_gyroADC[0]'].values[1])):
-#     if len(r) < 2:
-#         continue
-#
-#     t_1 = r['time'].values[0]/1e6
-#     t_2 = r['time'].values[1]/1e6
-#
-#     omega_1 = np.array([romega_x.predict(t_1.reshape(1, -1)),
-#                         romega_y.predict(t_1.reshape(1, -1)),
-#                         romega_z.predict(t_1.reshape(1, -1))]).reshape(-1)
-#     omega_2 = np.array([romega_x.predict(t_2.reshape(1, -1)),
-#                         romega_y.predict(t_2.reshape(1, -1)),
-#                         romega_z.predict(t_2.reshape(1, -1))]).reshape(-1)
-#
-#     omega_dot_1 = np.array([np.polyval(romega_dot_x, t_1),
-#                             np.polyval(romega_dot_y, t_1),
-#                             np.polyval(romega_dot_z, t_1)]).reshape(-1)
-#     omega_dot_2 = np.array([np.polyval(romega_dot_x, t_2),
-#                             np.polyval(romega_dot_y, t_2),
-#                             np.polyval(romega_dot_z, t_2)]).reshape(-1)
-#
-#     I = iterate(omega_1, omega_dot_1, omega_2, omega_dot_2)
-#     print(I)
+omega_0 = np.array([df["gyroADC[0]"].values[0],
+                    df["gyroADC[1]"].values[0],
+                    df["gyroADC[2]"].values[0]])
+# # I = iterate_2(df, omega_0)
+# print(I)
 
 
-I = iterate_2(df, np.array([df["gyroADC[0]"].values[0], df["gyroADC[1]"].values[0], df["gyroADC[2]"].values[0]]))
+A = []
+inertiaMatrix = None
+inertiaMatrix_0 = None
+        # x = np.linalg.solve(np.matmul(a.T, a), np.zeros(6))
+for r in df.rolling(window=1):
+    t = r['time'].values[0] / 1e6
+    o = np.array([romega_x.predict(t.reshape(1, -1)),
+                  romega_y.predict(t.reshape(1, -1)),
+                  romega_z.predict(t.reshape(1, -1))]).reshape(-1)
+    o_dot = np.array([np.polyval(romega_dot_x, t),
+                      np.polyval(romega_dot_y, t),
+                      np.polyval(romega_dot_z, t)]).reshape(-1)
+
+    line_x = [o_dot[0], -o[2] * o[0] + o_dot[1], -o[2] * o[1], o[1] * o[0] + o_dot[2], o[1] ** 2 - o[2] ** 2, o[1] * o[2]]
+    A.append(line_x)
+    line_y = [o[2] * o[0], o[2] * o[1] + o_dot[0], o_dot[1], o[2] ** 2 - o[0] ** 2, -o[0] * o[1] + o_dot[2], -o[0] * o[2]]
+    A.append(line_y)
+    line_z = [-o[1] * o[0], o[0] ** 2 - o[1] ** 2, o[0] * o[1], -o[1] * o[2] + o_dot[0], o[0] * o[2] + o_dot[1], o_dot[2]]
+    A.append(line_z)
+    # print(A)
+    if len(A) >= 6:
+        a = np.array(A).reshape(-1, 6)
+        b = np.zeros(len(A)).T
+        # x, r, R, s = np.linalg.lstsq(a.astype('float'), b.astype('float'), rcond=-1)
+        eigen_values, eigen_vectors = np.linalg.eig(np.matmul(a.T, A))
+        x = eigen_vectors[:, eigen_values.argmin()]
+
+        global I
+        if len(A) == 6:
+            inertiaMatrix_0 = create_I(x)
+        inertiaMatrix = create_I(x)
+
+# sys.exit()
+
+# Verification
+omega = omega_0
+omega_f = omega_0
+X = []
+Y = []
+Z = []
+X_f = []
+Y_f = []
+Z_f = []
+Time = []
+print("I =", inertiaMatrix)
+for r in df.rolling(window=2):
+    if len(r) < 2:
+        continue
+    t_1 = r['time'].values[0] / 1e6
+    t_2 = r['time'].values[1] / 1e6
+    dt = t_2 - t_1
+    ddt = dt/8000
+    i = 0
+    inv = np.linalg.inv(inertiaMatrix)
+    inv_f = np.linalg.inv(inertiaMatrix_0)
+    for t in np.arange(t_1, t_2, ddt):
+        omega_dot = np.matmul(inv, -np.cross(omega, np.matmul(inertiaMatrix, omega)))
+        omega = omega + omega_dot * ddt
+        omega_dot_f = np.matmul(inv_f, -np.cross(omega_f, np.matmul(inertiaMatrix_0, omega_f)))
+        omega_f = omega_f + omega_dot_f * ddt
+        # if i % 100 == 0:
+    X.append(omega[0])
+    Y.append(omega[1])
+    Z.append(omega[2])
+    X_f.append(omega_f[0])
+    Y_f.append(omega_f[1])
+    Z_f.append(omega_f[2])
+    Time.append(t_1)
+        # i += 1
+
+Time = np.array(Time)
+plt.plot(Time, X)
+plt.plot(Time, Y)
+plt.plot(Time, Z)
+
+plt.plot(Time, X_f)
+plt.plot(Time, Y_f)
+plt.plot(Time, Z_f)
+plt.show()
