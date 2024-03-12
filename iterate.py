@@ -1,8 +1,5 @@
-import sys
 import time
 import numpy as np
-import scipy
-import pyarrow
 import pandas as pd
 import math
 import matplotlib.pyplot as plt
@@ -10,13 +7,14 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import make_pipeline
 
-rolling_window = 20
-fit_degree = 6
+fit_degree = 6      # Degree of the polynomial fit for
 
-fig, ax = plt.subplots()
-df = pd.read_csv("test2.csv")
+fig, ax = plt.subplots() # Initialise plot
+df = pd.read_csv("test2.csv") # Load data file
 
-T = df['time'].values.reshape(-1, 1) / 1e6
+T = df['time'].values.reshape(-1, 1) / 1e6 # Get times from the data, scaled to seconds
+
+# Get gyroscope data and convert to rad/s
 omega_x = df['gyroADC[0]'].values.reshape(-1, 1) * math.pi / 180
 omega_y = df['gyroADC[1]'].values.reshape(-1, 1) * math.pi / 180
 omega_z = df['gyroADC[2]'].values.reshape(-1, 1) * math.pi / 180
