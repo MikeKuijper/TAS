@@ -19,6 +19,7 @@ omega_x = df['gyroADC[0]'].values.reshape(-1, 1) * math.pi / 180
 omega_y = df['gyroADC[1]'].values.reshape(-1, 1) * math.pi / 180
 omega_z = df['gyroADC[2]'].values.reshape(-1, 1) * math.pi / 180
 
+# Define regressed omegas in three dimensions. In addition, take the derivative to find the omega_dots
 romega_x = make_pipeline(PolynomialFeatures(degree=fit_degree), LinearRegression(fit_intercept = True))
 romega_x.fit(T, omega_x)
 romega_dot_x = np.polyder(np.flip(romega_x.named_steps.linearregression.coef_).reshape(-1))
@@ -31,37 +32,43 @@ romega_z = make_pipeline(PolynomialFeatures(degree=fit_degree), LinearRegression
 romega_z.fit(T, omega_z)
 romega_dot_z = np.polyder(np.flip(romega_z.named_steps.linearregression.coef_).reshape(-1))
 
+# Redefine T to be uniformly distributed over the domain
 T = np.arange(np.min(T), np.max(T), 0.01).reshape(-1, 1)
 
-plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted")
-# plt.plot(T, np.polyval(romega_dot_x, X))
-# plt.plot(df["time"]/1e6, df["gyroADC[0]"], color="gray", linestyle="dashed")
 
-plt.plot(T, romega_y.predict(T), color="gray", linestyle="dotted")
-# plt.plot(T, np.polyval(romega_dot_y, X))
-# plt.plot(df["time"]/1e6, df["gyroADC[1]"], color="gray", linestyle="dashed")
 
-plt.plot(T, romega_z.predict(T), color="gray", linestyle="dotted")
-# plt.plot(T, np.polyval(romega_dot_z, X))
-# plt.plot(df["time"]/1e6, df["gyroADC[2]"], color="gray", linestyle="dashed")
+plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
+# plt.plot(T, np.polyval(romega_dot_x, X))  # Plot angular acceleration
+# plt.plot(df["time"]/1e6, df["gyroADC[0]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
+
+plt.plot(T, romega_y.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
+# plt.plot(T, np.polyval(romega_dot_y, X))  # Plot angular acceleration
+# plt.plot(df["time"]/1e6, df["gyroADC[1]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
+
+plt.plot(T, romega_z.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
+# plt.plot(T, np.polyval(romega_dot_z, X))  # Plot angular acceleration
+# plt.plot(df["time"]/1e6, df["gyroADC[2]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
 
 def create_I(x):
     return np.array([[x[0], x[1], x[3]],
                      [x[1], x[2], x[4]],
                      [x[3], x[4], x[5]]])
+# Arbitrarily define the locations of the coefficients.
+# Note that it is always symmetric due to the definition of the product moments of inertia.
 
 omega_0 = np.array([df["gyroADC[0]"].values[0],
                     df["gyroADC[1]"].values[0],
                     df["gyroADC[2]"].values[0]]) * math.pi / 180
+# Define initial condition for the simulation later
 
-A = []
-inertiaMatrix = None
-inertiaMatrix_0 = None
-inertias = []
+A = []  # Define the A matrix to be used later
+inertiaMatrix = None  # Define the inertia matrix
+inertiaMatrix_0 = None  # Define a second inertia matrix to be compared to the end result (using all available data)
+inertias = []  # Keep track of the different x vectors
 
-iterations = 100
+iterations = 100  # Calculate the inertia tensor after 100 iterations
 
-start_time = time.time()
+start_time = time.time()  # Find current time to track computation time.
 for r in df.rolling(window=1):
     t = r['time'].values[0] / 1e6
     o = np.array([romega_x.predict(t.reshape(1, -1)),
