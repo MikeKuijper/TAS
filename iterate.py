@@ -35,15 +35,15 @@ romega_dot_z = np.polyder(np.flip(romega_z.named_steps.linearregression.coef_).r
 
 T = np.arange(np.min(T), np.max(T), 0.01).reshape(-1, 1)
 
-plt.plot(T, romega_x.predict(T), color="gray", linestyle="dashed")
+plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted")
 # plt.plot(T, np.polyval(romega_dot_x, X))
 # plt.plot(df["time"]/1e6, df["gyroADC[0]"], color="gray", linestyle="dashed")
 
-plt.plot(T, romega_y.predict(T), color="gray", linestyle="dashed")
+plt.plot(T, romega_y.predict(T), color="gray", linestyle="dotted")
 # plt.plot(T, np.polyval(romega_dot_y, X))
 # plt.plot(df["time"]/1e6, df["gyroADC[1]"], color="gray", linestyle="dashed")
 
-plt.plot(T, romega_z.predict(T), color="gray", linestyle="dashed")
+plt.plot(T, romega_z.predict(T), color="gray", linestyle="dotted")
 # plt.plot(T, np.polyval(romega_dot_z, X))
 # plt.plot(df["time"]/1e6, df["gyroADC[2]"], color="gray", linestyle="dashed")
 
@@ -60,6 +60,8 @@ A = []
 inertiaMatrix = None
 inertiaMatrix_0 = None
 inertias = []
+
+iterations = 100
 
 start_time = time.time()
 for r in df.rolling(window=1):
@@ -86,7 +88,7 @@ for r in df.rolling(window=1):
         x = eigen_vectors[:, eigen_values.argmin()]
         inertias.extend(x)
         inertiaMatrix = create_I(x)
-        if len(A) == 6*60:
+        if len(A) == 6*iterations:
             inertiaMatrix_0 = create_I(x)
             print("Test took %s seconds" % (time.time() - start_time))
 print("Full took %s seconds" % (time.time() - start_time))
@@ -103,6 +105,8 @@ X_f = []
 Y_f = []
 Z_f = []
 Time = []
+
+# inertiaMatrix_0 = inertiaMatrix * 4
 print("I =", inertiaMatrix)
 for r in df.rolling(window=2):
     if len(r) < 2:
@@ -135,15 +139,20 @@ Time = np.array(Time)
 ax.set_ylabel("Angular velocity (rad/s)")
 ax.set_xlabel("Time (s)")
 
-# plt.plot(Time, X, label="X")
-# plt.plot(Time, Y, label="Y")
-# plt.plot(Time, Z, label="Z")
+# ax.set_ylabel("MSRE (-)")
+# ax.set_xlabel("Sample size")
 
-plt.plot(Time, X_f, label="X prelim")
-plt.plot(Time, Y_f, label="Y prelim")
-plt.plot(Time, Z_f, label="Z prelim")
+plt.plot(Time, X, label="X", color="tab:blue")
+plt.plot(Time, Y, label="Y", color="tab:orange")
+plt.plot(Time, Z, label="Z", color="tab:green")
 
-# plt.legend()
+plt.plot(Time, X_f, label=f"X ({iterations} iter.)", color="tab:blue", linestyle="dashed")
+plt.plot(Time, Y_f, label=f"Y ({iterations} iter.)", color="tab:orange", linestyle="dashed")
+plt.plot(Time, Z_f, label=f"Z ({iterations} iter.)", color="tab:green", linestyle="dashed")
+
+plt.axvline([df["time"].values[iterations-1]/1e6], color="gray", linestyle="dashed")
+
+plt.legend()
 # plt.show()
 
 error = []
@@ -163,4 +172,7 @@ for i in range(len(inertias)//6):
 # plt.plot(inertias[5::6])
 # plt.plot(error)
 # ax.set_yscale('log')
+
+plt.savefig(f"sim-{iterations}.pdf", dpi=500)
 plt.show()
+
