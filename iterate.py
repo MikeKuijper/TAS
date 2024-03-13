@@ -36,18 +36,19 @@ romega_dot_z = np.polyder(np.flip(romega_z.named_steps.linearregression.coef_).r
 T = np.arange(np.min(T), np.max(T), 0.01).reshape(-1, 1)
 
 
+plotmode = 0
+if plotmode == 0:
+    plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
+    # plt.plot(T, np.polyval(romega_dot_x, X))  # Plot angular acceleration
+    # plt.plot(df["time"]/1e6, df["gyroADC[0]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
 
-plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
-# plt.plot(T, np.polyval(romega_dot_x, X))  # Plot angular acceleration
-# plt.plot(df["time"]/1e6, df["gyroADC[0]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
+    plt.plot(T, romega_y.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
+    # plt.plot(T, np.polyval(romega_dot_y, X))  # Plot angular acceleration
+    # plt.plot(df["time"]/1e6, df["gyroADC[1]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
 
-plt.plot(T, romega_y.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
-# plt.plot(T, np.polyval(romega_dot_y, X))  # Plot angular acceleration
-# plt.plot(df["time"]/1e6, df["gyroADC[1]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
-
-plt.plot(T, romega_z.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
-# plt.plot(T, np.polyval(romega_dot_z, X))  # Plot angular acceleration
-# plt.plot(df["time"]/1e6, df["gyroADC[2]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
+    plt.plot(T, romega_z.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
+    # plt.plot(T, np.polyval(romega_dot_z, X))  # Plot angular acceleration
+    # plt.plot(df["time"]/1e6, df["gyroADC[2]"], color="gray", linestyle="dashed")  # Plot measured angular velocity
 
 def create_I(x):
     return np.array([[x[0], x[1], x[3]],
@@ -100,93 +101,127 @@ for r in df.rolling(window=1):
         eigen_values, eigen_vectors = np.linalg.eig(np.matmul(a.T, A))
         x = eigen_vectors[:, eigen_values.argmin()]
 
-        inertias.extend(x)
+        # Assure the result is physically accurate (principal moments of inertia are positive)
+        # If they cannot all be, keep the absolute value for the type 2 plot (compromise)
+        if x[0] < 0:
+            if not (x[2] < 0 and x[5] < 0):
+                X = np.abs(x)
+            else:
+                X = -x
+        else:
+            X = x
+
+        inertias.extend(X)
         inertiaMatrix = create_I(x)
         if len(A) == 6 * iterations: # After a set time, save the inertia matrix to a separate variable to compare.
             inertiaMatrix_0 = create_I(x)
             print("Test took %s seconds" % (time.time() - start_time))
 print("Full took %s seconds" % (time.time() - start_time))
 
-# sys.exit()
+print("I =", inertiaMatrix)  # Output calculated inertia matrix
 
-# Verification
+
+# === Verification by simulation ===
+
+# Initialise simulations
 omega = omega_0
-omega_f = omega_0
 X = []
 Y = []
 Z = []
+
+omega_f = omega_0
 X_f = []
 Y_f = []
 Z_f = []
+
 Time = []
 
-# inertiaMatrix_0 = inertiaMatrix * 4
-print("I =", inertiaMatrix)
+# Iterate through the datapoints and simulate
 for r in df.rolling(window=2):
     if len(r) < 2:
-        continue
+        continue # Only run if the window is filled
+
+    # Initialise begin and end times for interval
     t_1 = r['time'].values[0] / 1e6
     t_2 = r['time'].values[1] / 1e6
     dt = t_2 - t_1
-    ddt = dt/2000
-    i = 0
+
+    ddt = dt/2000  # Iterate 2000 times between datapoints
+
+    # i = 0
     inv = np.linalg.inv(inertiaMatrix)
     inv_f = np.linalg.inv(inertiaMatrix_0)
     for t in np.arange(t_1, t_2, ddt):
+        # Simulate by solving the Euler rotation equation for the angular acceleration and using it
+        # to numerically integrate the angular velocity
         omega_dot = np.matmul(inv, -np.cross(omega, np.matmul(inertiaMatrix, omega)))
         omega = omega + omega_dot * ddt
+
         omega_dot_f = np.matmul(inv_f, -np.cross(omega_f, np.matmul(inertiaMatrix_0, omega_f)))
         omega_f = omega_f + omega_dot_f * ddt
-        # if i % 100 == 0:
+
     X.append(omega[0])
     Y.append(omega[1])
     Z.append(omega[2])
+
     X_f.append(omega_f[0])
     Y_f.append(omega_f[1])
     Z_f.append(omega_f[2])
+
     Time.append(t_1)
-        # i += 1
 
-Time = np.array(Time)
+Time = np.array(Time)  # Convert time axis to numpy array
 
 
-ax.set_ylabel("Angular velocity (rad/s)")
-ax.set_xlabel("Time (s)")
 
-# ax.set_ylabel("MSRE (-)")
-# ax.set_xlabel("Sample size")
+# Matplotlib pizazz
+if plotmode == 0:
+    ax.set_ylabel("Angular velocity (rad/s)")
+    ax.set_xlabel("Time (s)")
 
-plt.plot(Time, X, label="X", color="tab:blue")
-plt.plot(Time, Y, label="Y", color="tab:orange")
-plt.plot(Time, Z, label="Z", color="tab:green")
+    plt.plot(Time, X, label="X", color="tab:blue")
+    plt.plot(Time, Y, label="Y", color="tab:orange")
+    plt.plot(Time, Z, label="Z", color="tab:green")
 
-plt.plot(Time, X_f, label=f"X ({iterations} iter.)", color="tab:blue", linestyle="dashed")
-plt.plot(Time, Y_f, label=f"Y ({iterations} iter.)", color="tab:orange", linestyle="dashed")
-plt.plot(Time, Z_f, label=f"Z ({iterations} iter.)", color="tab:green", linestyle="dashed")
+    plt.plot(Time, X_f, label=f"X ({iterations} iter.)", color="tab:blue", linestyle="dashed")
+    plt.plot(Time, Y_f, label=f"Y ({iterations} iter.)", color="tab:orange", linestyle="dashed")
+    plt.plot(Time, Z_f, label=f"Z ({iterations} iter.)", color="tab:green", linestyle="dashed")
 
-plt.axvline([df["time"].values[iterations-1]/1e6], color="gray", linestyle="dashed")
+    plt.axvline([df["time"].values[iterations-1]/1e6], color="gray", linestyle="dashed")
 
-plt.legend()
-# plt.show()
+    plt.legend()
+    plt.savefig(f"sim-{iterations}.pdf", dpi=500)
+elif plotmode == 1:
+    # Calculate error for convergence analysis
+    error = []
+    for i in range(len(inertias)//6):
+        e = 0
+        for j in range(6):
+            e += (inertias[j::6][i] / inertias[j::6][-1])**2
+        error.append(e/6)
 
-error = []
-for i in range(len(inertias)//6):
-    e = 0
-    for j in range(6):
-        e += (inertias[j::6][i] / inertias[j::6][-1])**2
-    error.append(e/6)
+    ax.set_ylabel("MSRE (-)")
+    ax.set_xlabel("Sample size")
 
-# ax = plt.figure().add_subplot(111)
-# print(inertias[0::6])
-# plt.plot(inertias[0::6])
-# plt.plot(inertias[1::6])
-# plt.plot(inertias[2::6])
-# plt.plot(inertias[3::6])
-# plt.plot(inertias[4::6])
-# plt.plot(inertias[5::6])
-# plt.plot(error)
-# ax.set_yscale('log')
+    plt.plot(error)
+    plt.savefig(f"error.pdf", dpi=500)
+elif plotmode == 2:
 
-plt.savefig(f"sim-{iterations}.pdf", dpi=500)
+    # ax = plt.figure().add_subplot(111)
+    # print(inertias[0::6])
+    plt.plot(inertias[0::6], label=r"$I_{xx}$")
+    plt.plot(inertias[2::6], label=r"$I_{yy}$")
+    plt.plot(inertias[5::6], label=r"$I_{zz}$")
+    plt.plot(inertias[1::6], label=r"$I_{xy}$")
+    plt.plot(inertias[3::6], label=r"$I_{xz}$")
+    plt.plot(inertias[4::6], label=r"$I_{yz}$")
+    plt.subplots_adjust(right=0.85)
+    plt.legend(bbox_to_anchor=(1.04, 0.5), loc="center left", borderaxespad=0)
+    # ax.set_yscale('log')
+    ax.set_ylabel("Relative inertia (-)")
+    ax.set_xlabel("Sample size (-)")
+
+    plt.savefig(f"individuals.pdf", bbox_inches="tight", dpi=500)
+
 plt.show()
 
