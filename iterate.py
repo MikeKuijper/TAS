@@ -73,11 +73,12 @@ for r in df.rolling(window=1):
     t = r['time'].values[0] / 1e6
     o = np.array([romega_x.predict(t.reshape(1, -1)),
                   romega_y.predict(t.reshape(1, -1)),
-                  romega_z.predict(t.reshape(1, -1))]).reshape(-1)
+                  romega_z.predict(t.reshape(1, -1))]).reshape(-1) # Define omega (angular velocity vector)
     o_dot = np.array([np.polyval(romega_dot_x, t),
                       np.polyval(romega_dot_y, t),
-                      np.polyval(romega_dot_z, t)]).reshape(-1)
+                      np.polyval(romega_dot_z, t)]).reshape(-1)  # Define omega dot (angular acceleration vector)
 
+    # The next few lines contain the massive worked-out matrix lines, rewritten to solve for I
     line_x = [o_dot[0], -o[2] * o[0] + o_dot[1], -o[2] * o[1], o[1] * o[0] + o_dot[2], o[1] ** 2 - o[2] ** 2, o[1] * o[2]]
     line_y = [o[2] * o[0], o[2] * o[1] + o_dot[0], o_dot[1], o[2] ** 2 - o[0] ** 2, -o[0] * o[1] + o_dot[2], -o[0] * o[2]]
     line_z = [-o[1] * o[0], o[0] ** 2 - o[1] ** 2, o[0] * o[1], -o[1] * o[2] + o_dot[0], o[0] * o[2] + o_dot[1], o_dot[2]]
@@ -85,15 +86,23 @@ for r in df.rolling(window=1):
     A.append(line_y)
     A.append(line_z)
 
-    if len(A) >= 6:
+    if len(A) >= 6: # Only proceed if the matrix isn't underdetermined
         a = np.array(A).reshape(-1, 6)
         b = np.zeros(len(A)).T
-        # x, r, R, s = np.linalg.lstsq(a.astype('float'), b.astype('float'), rcond=-1)
+
+        # x, r, R, s = np.linalg.lstsq(a.astype('float'), b.astype('float'), rcond=-1) # We decided not to use this, since it returns the trivial solution
+
+        # Don't worry if you're surprised that we are using eigenvectors here. I'd be offended if you weren't.
+        # There's a proof for this in the final paper, but just know that we have to do something different since the
+        # system that we're trying to solve is both overdetermined and homogeneous. It just turns out to be equivalent
+        # to finding the eigenvector with the smallest eigenvalue. Note that this way, the length of the x vector is
+        # exactly 1, since that was the constraint we set to keep it from converging to the trivial solution.
         eigen_values, eigen_vectors = np.linalg.eig(np.matmul(a.T, A))
         x = eigen_vectors[:, eigen_values.argmin()]
+
         inertias.extend(x)
         inertiaMatrix = create_I(x)
-        if len(A) == 6*iterations:
+        if len(A) == 6 * iterations: # After a set time, save the inertia matrix to a separate variable to compare.
             inertiaMatrix_0 = create_I(x)
             print("Test took %s seconds" % (time.time() - start_time))
 print("Full took %s seconds" % (time.time() - start_time))
