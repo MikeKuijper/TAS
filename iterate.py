@@ -7,7 +7,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import make_pipeline
 
-fit_degree = 6      # Degree of the polynomial fit for TESTING
+fit_degree = 6      # Degree of the polynomial fit for TESTING 2
 
 fig, ax = plt.subplots() # Initialise plot
 df = pd.read_csv("test4.csv") # Load data file
