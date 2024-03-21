@@ -10,8 +10,8 @@ from sklearn.pipeline import make_pipeline
 fit_degree = 6      # Degree of the polynomial fit for
 
 fig, ax = plt.subplots() # Initialise plot
-testfile = "test3.csv"
-df = pd.read_csv(testfile) # Load data file
+testfile = "test3"
+df = pd.read_csv(testfile + ".csv") # Load data file
 
 T = df['time'].values.reshape(-1, 1) / 1e6 # Get times from the data, scaled to seconds
 
