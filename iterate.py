@@ -92,7 +92,7 @@ for r in df.rolling(window=1):
                       np.polyval(romega_dot_z, t)]).reshape(-1)  # Define omega dot (angular acceleration vector)
 
 
-    # Matrix to find the distance between IMU and CG
+    # Matrix to find the distance between IMU and CG adsklfj
     B = []  # matrix for IMU distance
     line_x_d = [-o[1]**2 - o[2]**2, o[0]*o[1] - o_dot[2], o[0]*o[2] + o_dot[1]]
     line_y_d = [o[0]*o[1] + o_dot[2], -o[0]**2 - o[2]**2, o[1]*o[2] - o_dot[0]]
