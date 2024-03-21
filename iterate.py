@@ -10,7 +10,7 @@ from sklearn.pipeline import make_pipeline
 fit_degree = 6      # Degree of the polynomial fit for
 
 fig, ax = plt.subplots() # Initialise plot
-testfile = "test3"
+testfile = "test4"
 df = pd.read_csv(testfile + ".csv") # Load data file
 
 T = df['time'].values.reshape(-1, 1) / 1e6 # Get times from the data, scaled to seconds
@@ -58,9 +58,17 @@ def create_I(x):
 # Arbitrarily define the locations of the coefficients.
 # Note that it is always symmetric due to the definition of the product moments of inertia.
 
-omega_0 = np.array([df["gyroADC[0]"].values[0],
-                    df["gyroADC[1]"].values[0],
-                    df["gyroADC[2]"].values[0]]) * math.pi / 180
+# omega_0 = np.array([df["gyroADC[0]"].values[0],
+#                     df["gyroADC[1]"].values[0],
+#                     df["gyroADC[2]"].values[0]]) * math.pi / 180
+# print(omega_0)
+zero_array = np.ones((1, 1)).reshape(-1, 1) * min(T)
+# print(zero_array)
+omega_0 = np.array([romega_x.predict(zero_array),
+                    romega_y.predict(zero_array),
+                    romega_z.predict(zero_array)]).reshape(-1) # Define omega (angular velocity vector)
+print(omega_0)
+
 # Define initial condition for the simulation later
 
 A = []  # Define the A matrix to be used later
