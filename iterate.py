@@ -72,6 +72,11 @@ iterations = 100  # Calculate the inertia tensor after 100 iterations
 
 start_time = time.time()  # Find current time to track computation time.
 
+r_x = []
+r_y = []
+r_z = []
+#print(r_x)
+
 ATA = np.zeros(36).reshape(6, 6)
 prev_x = np.zeros(6)
 x_errors = []
@@ -85,6 +90,7 @@ for r in df.rolling(window=1):
     o_dot = np.array([np.polyval(romega_dot_x, t),
                       np.polyval(romega_dot_y, t),
                       np.polyval(romega_dot_z, t)]).reshape(-1)  # Define omega dot (angular acceleration vector)
+
 
     # Matrix to find the distance between IMU and CG
     B = []  # matrix for IMU distance
@@ -109,42 +115,11 @@ for r in df.rolling(window=1):
     a_IMU = np.array([[acc_x], [acc_y], [acc_z]])
     a_difference = a_cg - a_IMU
 
-    r = np.dot(inverse_theta, a_difference) # r = distance between IMU & CG
+    r = np.dot(inverse_theta, a_difference).reshape(-1) # r = distance between IMU & CG
     print(r)
-
-    plt.figure(figsize=(10, 6))
-    '''
-    # Plotting for x-component
-    #plt.subplot(3, 1, 1)
-    #plt.plot(r[0], label='X component')
-    #plt.title('Distance between IMU and CG (x component)')
-    #plt.xlabel('Data points')
-    plt.ylabel('Distance')
-    plt.legend()
-
-    # Plotting for y-component
-    plt.subplot(3, 1, 2)
-    plt.plot(r[1], label='Y component')
-    plt.title('Distance between IMU and CG (y component)')
-    plt.xlabel('Data points')
-    plt.ylabel('Distance')
-    plt.legend()
-
-    # Plotting for z-component
-    plt.subplot(3, 1, 3)
-    plt.plot(r[2], label='Z component')
-    plt.title('Distance between IMU and CG (z component)')
-    plt.xlabel('Data points')
-    plt.ylabel('Distance')
-    plt.legend()
-
-    plt.tight_layout()
-    plt.show()
-
-    '''
-
-
-
+    r_x.append(r[0,0])
+    r_y.append(r[0,1])
+    r_z.append(r[0,2])
 
     # The next few lines contain the massive worked-out matrix lines, rewritten to solve for I
     line_x = [o_dot[0], -o[2] * o[0] + o_dot[1], -o[2] * o[1], o[1] * o[0] + o_dot[2], o[1] ** 2 - o[2] ** 2, o[1] * o[2]]
@@ -216,6 +191,35 @@ if not has_converged:
     iterations = len(A) // 6
     print("Test took %s seconds to converge at %i" % (time.time() - start_time, iterations))
 print("Full took %s seconds" % (time.time() - start_time))
+
+plt.figure(figsize=(10, 6))
+
+#Plotting for x-component
+plt.subplot(3, 1, 1)
+plt.plot(r_x, label='X component')
+plt.title('Distance between IMU and CG (x component)')
+plt.xlabel('Data points')
+plt.ylabel('Distance')
+plt.legend()
+
+# Plotting for y-component
+plt.subplot(3, 1, 2)
+plt.plot(r_y, label='Y component')
+plt.title('Distance between IMU and CG (y component)')
+plt.xlabel('Data points')
+plt.ylabel('Distance')
+plt.legend()
+
+# Plotting for z-component
+plt.subplot(3, 1, 3)
+plt.plot(r_z, label='Z component')
+plt.title('Distance between IMU and CG (z component)')
+plt.xlabel('Data points')
+plt.ylabel('Distance')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
 
 # plt.imshow(inertiaMatrix, interpolation='none')
 # plt.colorbar()
