@@ -86,6 +86,66 @@ for r in df.rolling(window=1):
                       np.polyval(romega_dot_y, t),
                       np.polyval(romega_dot_z, t)]).reshape(-1)  # Define omega dot (angular acceleration vector)
 
+    # Matrix to find the distance between IMU and CG
+    B = []  # matrix for IMU distance
+    line_x_d = [-o[1]**2 - o[2]**2, o[0]*o[1] - o_dot[2], o[0]*o[2] + o_dot[1]]
+    line_y_d = [o[0]*o[1] + o_dot[2], -o[0]**2 - o[2]**2, o[1]*o[2] - o_dot[0]]
+    line_z_d = [o[0]*o[2] - o_dot[1], o[1]*o[2] + o_dot[0], -o[0]**2 - o[1]**2]
+    B.append(line_x_d)
+    B.append(line_y_d)
+    B.append(line_z_d)
+    theta = np.matrix([line_x_d, line_y_d, line_z_d])
+    #print(theta)
+    t_start = time.time()
+    inverse_theta = np.linalg.inv(theta)
+    #t_end = time.time()
+    #print(inverse_theta, t_end-t_start)
+
+    acc_x = r['accSmooth[0]'].values[0] * 9.81 / 2048 #linear acceleration
+    acc_y = r['accSmooth[1]'].values[0] * 9.81 / 2048
+    acc_z = r['accSmooth[2]'].values[0] * 9.81 / 2048
+
+    a_cg = np.zeros((3,1)) #CG linear acceleration
+    a_IMU = np.array([[acc_x], [acc_y], [acc_z]])
+    a_difference = a_cg - a_IMU
+
+    r = np.dot(inverse_theta, a_difference) # r = distance between IMU & CG
+    print(r)
+
+    plt.figure(figsize=(10, 6))
+    '''
+    # Plotting for x-component
+    #plt.subplot(3, 1, 1)
+    #plt.plot(r[0], label='X component')
+    #plt.title('Distance between IMU and CG (x component)')
+    #plt.xlabel('Data points')
+    plt.ylabel('Distance')
+    plt.legend()
+
+    # Plotting for y-component
+    plt.subplot(3, 1, 2)
+    plt.plot(r[1], label='Y component')
+    plt.title('Distance between IMU and CG (y component)')
+    plt.xlabel('Data points')
+    plt.ylabel('Distance')
+    plt.legend()
+
+    # Plotting for z-component
+    plt.subplot(3, 1, 3)
+    plt.plot(r[2], label='Z component')
+    plt.title('Distance between IMU and CG (z component)')
+    plt.xlabel('Data points')
+    plt.ylabel('Distance')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    '''
+
+
+
+
     # The next few lines contain the massive worked-out matrix lines, rewritten to solve for I
     line_x = [o_dot[0], -o[2] * o[0] + o_dot[1], -o[2] * o[1], o[1] * o[0] + o_dot[2], o[1] ** 2 - o[2] ** 2, o[1] * o[2]]
     line_y = [o[2] * o[0], o[2] * o[1] + o_dot[0], o_dot[1], o[2] ** 2 - o[0] ** 2, -o[0] * o[1] + o_dot[2], -o[0] * o[2]]
