@@ -10,7 +10,8 @@ from sklearn.pipeline import make_pipeline
 fit_degree = 6      # Degree of the polynomial fit for
 
 fig, ax = plt.subplots() # Initialise plot
-df = pd.read_csv("test4.csv") # Load data file
+testfile = "test3.csv"
+df = pd.read_csv(testfile) # Load data file
 
 T = df['time'].values.reshape(-1, 1) / 1e6 # Get times from the data, scaled to seconds
 
@@ -246,7 +247,7 @@ if plotmode == 0:
     plt.axvline([df["time"].values[iterations-1]/1e6], color="gray", linestyle="dashed")
 
     plt.legend()
-    plt.savefig(f"sim-{iterations}.pdf", dpi=500)
+    plt.savefig(f"sim-{testfile}-{iterations}.pdf", dpi=500)
 elif plotmode == 1:
     # Calculate error for convergence analysis
     error = []
@@ -260,7 +261,7 @@ elif plotmode == 1:
     ax.set_xlabel("Sample size")
 
     plt.plot(error)
-    plt.savefig(f"error.pdf", dpi=500)
+    plt.savefig(f"error-{testfile}.pdf", dpi=500)
 elif plotmode == 2:
 
     # ax = plt.figure().add_subplot(111)
@@ -277,12 +278,14 @@ elif plotmode == 2:
     ax.set_ylabel("Relative inertia (-)")
     ax.set_xlabel("Sample size (-)")
 
-    plt.savefig(f"individuals.pdf", bbox_inches="tight", dpi=500)
+    plt.savefig(f"individuals-{testfile}.pdf", bbox_inches="tight", dpi=500)
 elif plotmode == 3:
     plt.plot(x_errors)
     plt.axvline([iterations], color="gray", linestyle="dashed")
     ax.set_yscale('log')
     ax.set_xlabel("Sample size (-)")
+
+    plt.savefig(f"delta-{testfile}.pdf", bbox_inches="tight", dpi=500)
 
 plt.show()
 
