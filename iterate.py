@@ -10,7 +10,7 @@ from sklearn.pipeline import make_pipeline
 fit_degree = 6      # Degree of the polynomial fit for
 
 fig, ax = plt.subplots() # Initialise plot
-testfile = "test4"
+testfile = "test2"
 df = pd.read_csv(testfile + ".csv") # Load data file
 
 T = df['time'].values.reshape(-1, 1) / 1e6 # Get times from the data, scaled to seconds
@@ -36,8 +36,11 @@ romega_dot_z = np.polyder(np.flip(romega_z.named_steps.linearregression.coef_).r
 # Redefine T to be uniformly distributed over the domain
 T = np.arange(np.min(T), np.max(T), 0.01).reshape(-1, 1)
 
+acceleration_x = np.array(df['accSmooth[0]'].values) * 9.81 / 2048
+acceleration_y = np.array(df['accSmooth[1]'].values) * 9.81 / 2048
+acceleration_z = np.array(df['accSmooth[2]'].values) * 9.81 / 2048
 
-plotmode = 0
+plotmode = 5
 if plotmode == 0:
     plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
     # plt.plot(T, np.polyval(romega_dot_x, X))  # Plot angular acceleration
@@ -67,7 +70,7 @@ zero_array = np.ones((1, 1)).reshape(-1, 1) * min(T)
 omega_0 = np.array([romega_x.predict(zero_array),
                     romega_y.predict(zero_array),
                     romega_z.predict(zero_array)]).reshape(-1) # Define omega (angular velocity vector)
-print(omega_0)
+# print(omega_0)
 
 # Define initial condition for the simulation later
 
@@ -84,6 +87,13 @@ r_x = []
 r_y = []
 r_z = []
 #print(r_x)
+
+imu_offset_A = []
+imu_offset_B = []
+
+a_x = []
+a_y = []
+a_z = []
 
 ATA = np.zeros(36).reshape(6, 6)
 prev_x = np.zeros(6)
@@ -108,6 +118,8 @@ for r in df.rolling(window=1):
     B.append(line_x_d)
     B.append(line_y_d)
     B.append(line_z_d)
+    imu_offset_A.append(B)
+
     theta = np.matrix([line_x_d, line_y_d, line_z_d])
     #print(theta)
     t_start = time.time()
@@ -115,19 +127,39 @@ for r in df.rolling(window=1):
     #t_end = time.time()
     #print(inverse_theta, t_end-t_start)
 
-    acc_x = r['accSmooth[0]'].values[0] * 9.81 / 2048 #linear acceleration
+    acc_x = r['accSmooth[0]'].values[0] * 9.81 / 2048  # linear acceleration
     acc_y = r['accSmooth[1]'].values[0] * 9.81 / 2048
     acc_z = r['accSmooth[2]'].values[0] * 9.81 / 2048
 
-    a_cg = np.zeros((3,1)) #CG linear acceleration
+    a_cg = np.zeros((3, 1))  #CG linear acceleration
     a_IMU = np.array([[acc_x], [acc_y], [acc_z]])
     a_difference = a_cg - a_IMU
+    imu_offset_B.extend(a_difference)
 
-    r = np.dot(inverse_theta, a_difference).reshape(-1) # r = distance between IMU & CG
-    print(r)
-    r_x.append(r[0,0])
-    r_y.append(r[0,1])
-    r_z.append(r[0,2])
+    # r = inverse_theta @ a_difference # r = distance between IMU & CG
+    # print(r)
+    a = np.array(imu_offset_A).reshape(-1, 3)
+    b = np.array(imu_offset_B).reshape(-1, 1)
+    r = np.linalg.inv(a.T @ a) @ a.T @ b
+
+    o_dot = o_dot.reshape(-1)
+    r = r.flatten()
+    o = o.reshape(-1)
+    # print(r[0,1])
+    # r = np.array([r[0,0], r[0,1], r[0,2]])  # Release inner caveman
+    # r = r.
+    # cross = np.cross(o,r).reshape(-1)/
+    # print(a_IMU, o, o_dot, r, cross)
+    a_cg = a_IMU.reshape(-1) + np.cross(o_dot, r) + np.cross(o, np.cross(o, r))
+    a_x.append(a_cg.reshape(-1)[0])
+    a_y.append(a_cg.reshape(-1)[1])
+    a_z.append(a_cg.reshape(-1)[2])
+    # print(a_cg)
+
+    # print(r)
+    r_x.append(r[0])
+    r_y.append(r[1])
+    r_z.append(r[2])
 
     # The next few lines contain the massive worked-out matrix lines, rewritten to solve for I
     line_x = [o_dot[0], -o[2] * o[0] + o_dot[1], -o[2] * o[1], o[1] * o[0] + o_dot[2], o[1] ** 2 - o[2] ** 2, o[1] * o[2]]
@@ -200,34 +232,6 @@ if not has_converged:
     print("Test took %s seconds to converge at %i" % (time.time() - start_time, iterations))
 print("Full took %s seconds" % (time.time() - start_time))
 
-plt.figure(figsize=(10, 6))
-
-#Plotting for x-component
-plt.subplot(3, 1, 1)
-plt.plot(r_x, label='X component')
-plt.title('Distance between IMU and CG (x component)')
-plt.xlabel('Data points')
-plt.ylabel('Distance')
-plt.legend()
-
-# Plotting for y-component
-plt.subplot(3, 1, 2)
-plt.plot(r_y, label='Y component')
-plt.title('Distance between IMU and CG (y component)')
-plt.xlabel('Data points')
-plt.ylabel('Distance')
-plt.legend()
-
-# Plotting for z-component
-plt.subplot(3, 1, 3)
-plt.plot(r_z, label='Z component')
-plt.title('Distance between IMU and CG (z component)')
-plt.xlabel('Data points')
-plt.ylabel('Distance')
-plt.legend()
-
-plt.tight_layout()
-plt.show()
 
 # plt.imshow(inertiaMatrix, interpolation='none')
 # plt.colorbar()
@@ -284,6 +288,8 @@ if 0 <= plotmode <= 2:
             # Simulate by solving the Euler rotation equation for the angular acceleration and using it
             # to numerically integrate the angular velocity
             omega_dot = np.matmul(inv, -np.cross(omega, np.matmul(inertiaMatrix, omega)))
+            # print(-np.divide(inertiaMatrix @ omega_dot * ddt, np.cross(omega, inertiaMatrix @ omega)))
+            # print(inertiaMatrix @ omega_dot, np.cross(omega, inertiaMatrix @ omega))
             omega = omega + omega_dot * ddt
 
             omega_dot_f = np.matmul(inv_f, -np.cross(omega_f, np.matmul(inertiaMatrix_0, omega_f)))
@@ -358,6 +364,65 @@ elif plotmode == 3:
     ax.set_xlabel("Sample size (-)")
 
     plt.savefig(f"delta-{testfile}.pdf", bbox_inches="tight", dpi=500)
+elif plotmode == 4:
+    plt.figure(figsize=(10, 6))
+
+    # Plotting for x-component
+    plt.subplot(3, 1, 1)
+    plt.plot(r_x, label='X component')
+    plt.title('Distance between IMU and CG (x component)')
+    plt.xlabel('Data points')
+    plt.ylabel('Distance')
+    plt.legend()
+
+    # Plotting for y-component
+    plt.subplot(3, 1, 2)
+    plt.plot(r_y, label='Y component')
+    plt.title('Distance between IMU and CG (y component)')
+    plt.xlabel('Data points')
+    plt.ylabel('Distance')
+    plt.legend()
+
+    # Plotting for z-component
+    plt.subplot(3, 1, 3)
+    plt.plot(r_z, label='Z component')
+    plt.title('Distance between IMU and CG (z component)')
+    plt.xlabel('Data points')
+    plt.ylabel('Distance')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+elif plotmode == 5:
+    plt.figure(figsize=(10, 6))
+
+    # Plotting for x-component
+    plt.subplot(3, 1, 1)
+    plt.plot(a_x, label='X component')
+    plt.title('Linear acceleration (x component)')
+    plt.xlabel('Data points')
+    plt.ylabel(r'Acceleration (m/s$^2$)')
+    plt.legend()
+
+    # Plotting for y-component
+    plt.subplot(3, 1, 2)
+    plt.plot(a_y, label='Y component')
+    plt.title('Linear acceleration (y component)')
+    plt.xlabel('Data points')
+    plt.ylabel(r'Acceleration (m/s$^2$)')
+    plt.legend()
+
+    # Plotting for z-component
+    plt.subplot(3, 1, 3)
+    plt.plot(a_z, label='Z component')
+    plt.title('Linear acceleration (z component)')
+    plt.xlabel('Data points')
+    plt.ylabel(r'Acceleration (m/s$^2$)')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
 
 plt.show()
 
