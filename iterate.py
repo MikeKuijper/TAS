@@ -10,7 +10,7 @@ from sklearn.pipeline import make_pipeline
 fit_degree = 6      # Degree of the polynomial fit for
 
 fig, ax = plt.subplots() # Initialise plot
-testfile = "test2"
+testfile = "test4"
 df = pd.read_csv(testfile + ".csv") # Load data file
 
 T = df['time'].values.reshape(-1, 1) / 1e6 # Get times from the data, scaled to seconds
@@ -398,7 +398,9 @@ elif plotmode == 5:
 
     # Plotting for x-component
     plt.subplot(3, 1, 1)
-    plt.plot(a_x, label='X component')
+    plt.plot(acceleration_x, label="X pre")
+    plt.plot(a_x, label='X post')
+    # plt.plot(np.divide(a_x, acceleration_x))
     plt.title('Linear acceleration (x component)')
     plt.xlabel('Data points')
     plt.ylabel(r'Acceleration (m/s$^2$)')
@@ -406,7 +408,9 @@ elif plotmode == 5:
 
     # Plotting for y-component
     plt.subplot(3, 1, 2)
-    plt.plot(a_y, label='Y component')
+    plt.plot(acceleration_y, label="Y pre")
+    plt.plot(a_y, label='Y post')
+    # plt.plot(np.divide(a_y, acceleration_y))
     plt.title('Linear acceleration (y component)')
     plt.xlabel('Data points')
     plt.ylabel(r'Acceleration (m/s$^2$)')
@@ -414,15 +418,40 @@ elif plotmode == 5:
 
     # Plotting for z-component
     plt.subplot(3, 1, 3)
-    plt.plot(a_z, label='Z component')
+    plt.plot(acceleration_z, label="Z pre")
+    plt.plot(a_z, label='Z post')
+    # plt.plot(np.divide(a_z, acceleration_z))
     plt.title('Linear acceleration (z component)')
     plt.xlabel('Data points')
     plt.ylabel(r'Acceleration (m/s$^2$)')
     plt.legend()
 
     plt.tight_layout()
+    plt.savefig(f"la-{testfile}.pdf", bbox_inches="tight", dpi=500)
     plt.show()
 
+elif plotmode == 6:
+    # x = np.arange(256)
+    # Y = np.sin(x)
+    # sp = np.fft.fft(Y)
+    # F = np.fft.fftfreq(x.shape[-1])
+    T = df['time'].values.reshape(-1, 1) / 1e6  # Get times from the data, scaled to seconds
+    x_sp = np.abs(np.fft.fft(acceleration_x))
+    y_sp = np.abs(np.fft.fft(acceleration_y))
+    z_sp = np.abs(np.fft.fft(acceleration_z))
+    F = np.fft.fftfreq(T.reshape(-1).shape[-1], d=T[1]-T[0])
 
+    # plt.plot(F * 2 * math.pi, sp.real)
+
+    # plt.xlim([0, None])
+    # plt.xlim(left=0, right=max(F))
+    plt.yscale("log")
+
+    plt.plot(F, x_sp, label="X")
+    plt.plot(F, y_sp, label="Y")
+    plt.plot(F, z_sp, label="Z")
+    plt.legend()
+    plt.show()
+    plt.savefig(f"fft-{testfile}.pdf", bbox_inches="tight", dpi=500)
 plt.show()
 
