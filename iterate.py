@@ -40,7 +40,7 @@ acceleration_x = np.array(df['accSmooth[0]'].values) * 9.81 / 2048
 acceleration_y = np.array(df['accSmooth[1]'].values) * 9.81 / 2048
 acceleration_z = np.array(df['accSmooth[2]'].values) * 9.81 / 2048
 
-plotmode = 5
+plotmode = 6
 if plotmode == 0:
     plt.plot(T, romega_x.predict(T), color="gray", linestyle="dotted") # Plot fitted angular velocity
     # plt.plot(T, np.polyval(romega_dot_x, X))  # Plot angular acceleration
@@ -64,14 +64,10 @@ def create_I(x):
 # omega_0 = np.array([df["gyroADC[0]"].values[0],
 #                     df["gyroADC[1]"].values[0],
 #                     df["gyroADC[2]"].values[0]]) * math.pi / 180
-# print(omega_0)
 zero_array = np.ones((1, 1)).reshape(-1, 1) * min(T)
-# print(zero_array)
 omega_0 = np.array([romega_x.predict(zero_array),
                     romega_y.predict(zero_array),
-                    romega_z.predict(zero_array)]).reshape(-1) # Define omega (angular velocity vector)
-# print(omega_0)
-
+                    romega_z.predict(zero_array)]).reshape(-1)
 # Define initial condition for the simulation later
 
 A = []  # Define the A matrix to be used later
@@ -80,35 +76,31 @@ inertiaMatrix_0 = None  # Define a second inertia matrix to be compared to the e
 inertias = []  # Keep track of the different x vectors
 
 iterations = 100  # Calculate the inertia tensor after 100 iterations
-
 start_time = time.time()  # Find current time to track computation time.
 
-r_x = []
-r_y = []
-r_z = []
-#print(r_x)
+rList = []
+aList = []
 
 imu_offset_A = []
 imu_offset_B = []
 
-a_x = []
-a_y = []
-a_z = []
-
 ATA = np.zeros(36).reshape(6, 6)
 prev_x = np.zeros(6)
 x_errors = []
+
 has_converged = False
 for r in df.rolling(window=1):
     t = r['time'].values[0] / 1e6
 
+    linearAcceleration = np.array([r['accSmooth[0]'].values[0] * 9.81 / 2048,
+                  r['accSmooth[1]'].values[0] * 9.81 / 2048,
+                  r['accSmooth[2]'].values[0] * 9.81 / 2048])
     o = np.array([romega_x.predict(t.reshape(1, -1)),
                   romega_y.predict(t.reshape(1, -1)),
                   romega_z.predict(t.reshape(1, -1))]).reshape(-1) # Define omega (angular velocity vector)
     o_dot = np.array([np.polyval(romega_dot_x, t),
                       np.polyval(romega_dot_y, t),
                       np.polyval(romega_dot_z, t)]).reshape(-1)  # Define omega dot (angular acceleration vector)
-
 
     # Matrix to find the distance between IMU and CG adsklfj
     B = []  # matrix for IMU distance
@@ -121,23 +113,14 @@ for r in df.rolling(window=1):
     imu_offset_A.append(B)
 
     theta = np.matrix([line_x_d, line_y_d, line_z_d])
-    #print(theta)
     t_start = time.time()
     inverse_theta = np.linalg.inv(theta)
-    #t_end = time.time()
-    #print(inverse_theta, t_end-t_start)
-
-    acc_x = r['accSmooth[0]'].values[0] * 9.81 / 2048  # linear acceleration
-    acc_y = r['accSmooth[1]'].values[0] * 9.81 / 2048
-    acc_z = r['accSmooth[2]'].values[0] * 9.81 / 2048
 
     a_cg = np.zeros((3, 1))  #CG linear acceleration
-    a_IMU = np.array([[acc_x], [acc_y], [acc_z]])
-    a_difference = a_cg - a_IMU
+    a_difference = a_cg - linearAcceleration.reshape(-1, 1)
     imu_offset_B.extend(a_difference)
 
     # r = inverse_theta @ a_difference # r = distance between IMU & CG
-    # print(r)
     a = np.array(imu_offset_A).reshape(-1, 3)
     b = np.array(imu_offset_B).reshape(-1, 1)
     r = np.linalg.inv(a.T @ a) @ a.T @ b
@@ -145,21 +128,10 @@ for r in df.rolling(window=1):
     o_dot = o_dot.reshape(-1)
     r = r.flatten()
     o = o.reshape(-1)
-    # print(r[0,1])
-    # r = np.array([r[0,0], r[0,1], r[0,2]])  # Release inner caveman
-    # r = r.
-    # cross = np.cross(o,r).reshape(-1)/
-    # print(a_IMU, o, o_dot, r, cross)
-    a_cg = a_IMU.reshape(-1) + np.cross(o_dot, r) + np.cross(o, np.cross(o, r))
-    a_x.append(a_cg.reshape(-1)[0])
-    a_y.append(a_cg.reshape(-1)[1])
-    a_z.append(a_cg.reshape(-1)[2])
-    # print(a_cg)
 
-    # print(r)
-    r_x.append(r[0])
-    r_y.append(r[1])
-    r_z.append(r[2])
+    a_cg = linearAcceleration.reshape(-1) + np.cross(o_dot, r) + np.cross(o, np.cross(o, r))
+    aList.append(a_cg)
+    rList.append(r)
 
     # The next few lines contain the massive worked-out matrix lines, rewritten to solve for I
     line_x = [o_dot[0], -o[2] * o[0] + o_dot[1], -o[2] * o[1], o[1] * o[0] + o_dot[2], o[1] ** 2 - o[2] ** 2, o[1] * o[2]]
@@ -169,16 +141,8 @@ for r in df.rolling(window=1):
     A.append(line_y)
     A.append(line_z)
     zeta = np.matrix([line_x, line_y, line_z]).reshape((3,6))
-    # print(zeta)
 
     delta = np.matmul(zeta.T, zeta)
-
-    # delta_norm = delta / math.sqrt(np.matmul(delta.reshape(-1), delta.reshape(-1).T))
-    # ATA_norm = ATA / math.sqrt(np.matmul(ATA.reshape(-1), ATA.reshape(-1).T))
-    # print("Current normalised    \n", ATA_norm)
-    # print("Delta normalised      \n", delta_norm)
-    # print("Normalised difference \n", ATA_norm - delta_norm)
-
     ATA += delta
 
     if len(A) >= 6: # Only proceed if the matrix isn't underdetermined
@@ -257,14 +221,10 @@ print(f"theta_z = {theta_z * 180/math.pi: 0.2f} deg")
 
 # Initialise simulations
 omega = omega_0
-X = []
-Y = []
-Z = []
+angularVelocities = []
 
-omega_f = omega_0
-X_f = []
-Y_f = []
-Z_f = []
+verificationOmega = omega_0
+verificationAngularVelocities = []
 
 Time = []
 
@@ -279,7 +239,7 @@ if 0 <= plotmode <= 2:
         t_2 = r['time'].values[1] / 1e6
         dt = t_2 - t_1
 
-        ddt = dt/2000  # Iterate 2000 times between datapoints
+        ddt = dt/500  # Iterate 2000 times between datapoints
 
         # i = 0
         inv = np.linalg.inv(inertiaMatrix)
@@ -292,36 +252,40 @@ if 0 <= plotmode <= 2:
             # print(inertiaMatrix @ omega_dot, np.cross(omega, inertiaMatrix @ omega))
             omega = omega + omega_dot * ddt
 
-            omega_dot_f = np.matmul(inv_f, -np.cross(omega_f, np.matmul(inertiaMatrix_0, omega_f)))
-            omega_f = omega_f + omega_dot_f * ddt
+            omega_dot_f = np.matmul(inv_f, -np.cross(verificationOmega, np.matmul(inertiaMatrix_0, verificationOmega)))
+            verificationOmega = verificationOmega + omega_dot_f * ddt
 
-        X.append(omega[0])
-        Y.append(omega[1])
-        Z.append(omega[2])
+        angularVelocities.append(omega)
+        # X.append(omega[0])
+        # Y.append(omega[1])
+        # Z.append(omega[2])
 
-        X_f.append(omega_f[0])
-        Y_f.append(omega_f[1])
-        Z_f.append(omega_f[2])
+        verificationAngularVelocities.append(omega)
+        # X_f.append(omega_f[0])
+        # Y_f.append(omega_f[1])
+        # Z_f.append(omega_f[2])
 
         Time.append(t_1)
 
     Time = np.array(Time)  # Convert time axis to numpy array
 
 
+def plotVector(X, Y, labels=["x", "y", "z"], colors=["tab:blue", "tab:orange", "tab:green"], linestyle="solid"):
+    Y = np.concatenate(Y)
+    for i, c in enumerate(colors):
+        plt.plot(X, Y[i::3], label=labels[i], color=c, linestyle=linestyle)
 
 # Matplotlib pizazz
 if plotmode == 0:
     ax.set_ylabel("Angular velocity (rad/s)")
     ax.set_xlabel("Time (s)")
 
-    plt.plot(Time, X, label="X", color="tab:blue")
-    plt.plot(Time, Y, label="Y", color="tab:orange")
-    plt.plot(Time, Z, label="Z", color="tab:green")
-
-    plt.plot(Time, X_f, label=f"X ({iterations} iter.)", color="tab:blue", linestyle="dashed")
-    plt.plot(Time, Y_f, label=f"Y ({iterations} iter.)", color="tab:orange", linestyle="dashed")
-    plt.plot(Time, Z_f, label=f"Z ({iterations} iter.)", color="tab:green", linestyle="dashed")
-
+    plotVector(Time, angularVelocities)
+    plotVector(Time, verificationAngularVelocities,
+               labels=[f"x ({iterations} iter.)",
+                       f"y ({iterations} iter.)",
+                       f"z ({iterations} iter.)"],
+               linestyle="dashed")
     plt.axvline([df["time"].values[iterations-1]/1e6], color="gray", linestyle="dashed")
 
     plt.legend()
@@ -332,7 +296,7 @@ elif plotmode == 1:
     for i in range(len(inertias)//6):
         e = 0
         for j in range(6):
-            e += (inertias[j::6][i] / inertias[j    ::6][-1])**2
+            e += (inertias[j::6][i] / inertias[j::6][-1])**2
         error.append(e/6)
 
     ax.set_ylabel("MSRE (-)")
@@ -367,91 +331,69 @@ elif plotmode == 3:
 elif plotmode == 4:
     plt.figure(figsize=(10, 6))
 
+    rList = np.concatenate(rList)
     # Plotting for x-component
     plt.subplot(3, 1, 1)
-    plt.plot(r_x, label='X component')
-    plt.title('Distance between IMU and CG (x component)')
-    plt.xlabel('Data points')
-    plt.ylabel('Distance')
-    plt.legend()
+    plt.plot(rList[0::3])
+    plt.title('Estimate of offset between IMU and CG')
+    plt.ylabel(f'Distance in\n$x$-direction (m)')
 
     # Plotting for y-component
     plt.subplot(3, 1, 2)
-    plt.plot(r_y, label='Y component')
-    plt.title('Distance between IMU and CG (y component)')
-    plt.xlabel('Data points')
-    plt.ylabel('Distance')
-    plt.legend()
+    plt.plot(rList[1::3])
+    plt.ylabel(f'Distance in\n$y$-direction (m)')
 
     # Plotting for z-component
     plt.subplot(3, 1, 3)
-    plt.plot(r_z, label='Z component')
-    plt.title('Distance between IMU and CG (z component)')
-    plt.xlabel('Data points')
-    plt.ylabel('Distance')
-    plt.legend()
+    plt.plot(rList[2::3])
+    plt.xlabel('Data points (-)')
+    plt.ylabel(f'Distance in\n$z$-direction (m)')
 
     plt.tight_layout()
-    plt.show()
 elif plotmode == 5:
     plt.figure(figsize=(10, 6))
 
+    aList = np.concatenate(aList)
+
     # Plotting for x-component
     plt.subplot(3, 1, 1)
-    plt.plot(acceleration_x, label="X pre")
-    plt.plot(a_x, label='X post')
-    # plt.plot(np.divide(a_x, acceleration_x))
-    plt.title('Linear acceleration (x component)')
-    plt.xlabel('Data points')
-    plt.ylabel(r'Acceleration (m/s$^2$)')
+    plt.plot(acceleration_x, label=r"Raw")
+    plt.plot(aList[0::3], label=r'Corrected')
+    plt.title('Linear acceleration')
+    plt.ylabel(f'Acceleration in\n$x$-direction (m/s$^2$)')
     plt.legend()
 
     # Plotting for y-component
     plt.subplot(3, 1, 2)
-    plt.plot(acceleration_y, label="Y pre")
-    plt.plot(a_y, label='Y post')
-    # plt.plot(np.divide(a_y, acceleration_y))
-    plt.title('Linear acceleration (y component)')
-    plt.xlabel('Data points')
-    plt.ylabel(r'Acceleration (m/s$^2$)')
+    plt.plot(acceleration_y, label="Raw")
+    plt.plot(aList[2::3], label='Corrected')
+    plt.ylabel(f'Acceleration in\n$y$-direction (m/s$^2$)')
     plt.legend()
 
     # Plotting for z-component
     plt.subplot(3, 1, 3)
-    plt.plot(acceleration_z, label="Z pre")
-    plt.plot(a_z, label='Z post')
-    # plt.plot(np.divide(a_z, acceleration_z))
-    plt.title('Linear acceleration (z component)')
+    plt.plot(acceleration_z, label="Raw")
+    plt.plot(aList[2::3], label='Corrected')
     plt.xlabel('Data points')
-    plt.ylabel(r'Acceleration (m/s$^2$)')
+    plt.ylabel(f'Acceleration in\n$z$-direction (m/s$^2$)')
     plt.legend()
 
     plt.tight_layout()
     plt.savefig(f"la-{testfile}.pdf", bbox_inches="tight", dpi=500)
-    plt.show()
-
 elif plotmode == 6:
-    # x = np.arange(256)
-    # Y = np.sin(x)
-    # sp = np.fft.fft(Y)
-    # F = np.fft.fftfreq(x.shape[-1])
     T = df['time'].values.reshape(-1, 1) / 1e6  # Get times from the data, scaled to seconds
     x_sp = np.abs(np.fft.fft(acceleration_x))
     y_sp = np.abs(np.fft.fft(acceleration_y))
     z_sp = np.abs(np.fft.fft(acceleration_z))
     F = np.fft.fftfreq(T.reshape(-1).shape[-1], d=T[1]-T[0])
 
-    # plt.plot(F * 2 * math.pi, sp.real)
-
-    # plt.xlim([0, None])
-    # plt.xlim(left=0, right=max(F))
     plt.yscale("log")
 
-    plt.plot(F, x_sp, label="X")
-    plt.plot(F, y_sp, label="Y")
-    plt.plot(F, z_sp, label="Z")
+    plt.plot(F, x_sp, label=f"$x$")
+    plt.plot(F, y_sp, label=f"$y$")
+    plt.plot(F, z_sp, label=f"$z$")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Amplitude")
     plt.legend()
-    plt.show()
     plt.savefig(f"fft-{testfile}.pdf", bbox_inches="tight", dpi=500)
 plt.show()
-
