@@ -15,10 +15,11 @@ from sklearn.pipeline import make_pipeline
 testfile = "ThrowsLab"
 df = pd.read_csv(testfile + ".csv")  # Load data file
 
-df['a_dot_x'] = pd.Series(np.random.randn(len(df["time"])), index=df.index)
-df['a_dot_y'] = pd.Series(np.random.randn(len(df["time"])), index=df.index)
-df['a_dot_z'] = pd.Series(np.random.randn(len(df["time"])), index=df.index)
-
+# df['a_dot_x'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
+# df['a_dot_y'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
+# df['a_dot_z'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
+df['a_dot'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
+df['a'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
 
 T = df['time'].values.reshape(-1, 1) / 1e6  # Get times from the data, scaled to seconds
 
@@ -102,50 +103,73 @@ prev_x = np.zeros(6)
 x_errors = []
 
 
-def isTumbling(window):
-    # Check acceleration
-    tumbling = False
-    linearAcceleration = np.array([window['accSmooth[0]'].values[0] * 9.81 / 2048,
-                                   window['accSmooth[1]'].values[0] * 9.81 / 2048,
-                                   window['accSmooth[2]'].values[0] * 9.81 / 2048])
-    if (np.abs(linearAcceleration) < 4).all():
-        tumbling = True
+# def isTumbling(window):
+#     # Check acceleration
+#     tumbling = False
+#     linearAcceleration = np.array([window['accSmooth[0]'].values[0] * 9.81 / 2048,
+#                                    window['accSmooth[1]'].values[0] * 9.81 / 2048,
+#                                    window['accSmooth[2]'].values[0] * 9.81 / 2048])
+#     if (np.abs(linearAcceleration) < 4).all():
+#         tumbling = True
+#
+#     return tumbling
 
-    return tumbling
 
-
-start_threshold = 30
-start_threshold_jerk = 20
-stop_threshold = 30
+start_threshold = 25
+start_threshold_jerk = 15
+stop_threshold = 15
 stop_threshold_jerk = 20
+min_omega = 2
 
 betweenPeaks = False
 def startsTumbling(window):
     tumbling = False
 
-    jerks_old = np.array([window['a_dot_x'].values[0],
-                         window['a_dot_y'].values[0],
-                         window['a_dot_z'].values[0]])
-    jerks_new = np.array([window['a_dot_x'].values[1],
-                         window['a_dot_y'].values[1],
-                         window['a_dot_z'].values[1]])
+    # jerks_old = np.array([window['a_dot_x'].values[-2],
+    #                      window['a_dot_y'].values[-2],
+    #                      window['a_dot_z'].values[-2]])
+    # jerks_new = np.array([window['a_dot_x'].values[-1],
+    #                      window['a_dot_y'].values[-1],
+    #                      window['a_dot_z'].values[-1]])
 
     # jerk_old = np.linalg.norm(jerks_old)
+    jerk_old = window["a_dot"].values[-2]
     # jerk_new = np.linalg.norm(jerks_new)
+    jerk_new = window["a_dot"].values[-1]
 
-    linearAcceleration_old = np.array([window['accSmooth[0]'].values[0],
-                                   window['accSmooth[1]'].values[0],
-                                   window['accSmooth[2]'].values[0]]) * 9.81 / 2048
-    linearAcceleration_new = np.array([window['accSmooth[0]'].values[1],
-                                   window['accSmooth[1]'].values[1],
-                                   window['accSmooth[2]'].values[1]]) * 9.81 / 2048
+    omega_x = window['gyroADC[0]'].values[-1] * math.pi / 180
+    omega_y = window['gyroADC[1]'].values[-1] * math.pi / 180
+    omega_z = window['gyroADC[2]'].values[-1] * math.pi / 180
+    omega = math.sqrt(omega_x**2 + omega_y**2 + omega_z**2)
+
+    # linearAcceleration_old = np.array([window['accSmooth[0]'].values[-2],
+    #                                window['accSmooth[1]'].values[-2],
+    #                                window['accSmooth[2]'].values[-2]]) * 9.81 / 2048
+    # linearAcceleration_new = np.array([window['accSmooth[0]'].values[-1],
+    #                                window['accSmooth[1]'].values[-1],
+    #                                window['accSmooth[2]'].values[-1]]) * 9.81 / 2048
+    # linacc_old = np.linalg.norm(linearAcceleration_old)
+    linacc_old = window["a"].values[-2]
+    # linacc_new = np.linalg.norm(linearAcceleration_new)
+    linacc_new = window["a"].values[-1]
     # print(linearAcceleration, 5000 * 9.81 / 2048)
 
     global betweenPeaks
-    if (np.abs(linearAcceleration_new) < start_threshold).any() and (np.abs(linearAcceleration_old) > start_threshold).any():
-        betweenPeaks = True
+    global startpeak
+    global endpeak
+    currentTime = window["time"].values[-1] / 1e6
 
-    if betweenPeaks and ((np.abs(jerks_new) < start_threshold_jerk).all() and not (np.abs(jerks_old) < start_threshold_jerk).all()):
+    if linacc_new > start_threshold and linacc_old < start_threshold:
+        startpeak = currentTime
+    if linacc_new < start_threshold and linacc_old > start_threshold:
+        endpeak = currentTime
+
+        # print(endpeak-startpeak)
+        # print(omega)
+        if 0.1 <= (endpeak - startpeak) <= 0.3 and omega > min_omega:
+            betweenPeaks = True
+
+    if betweenPeaks and abs(jerk_new) < start_threshold_jerk and not abs(jerk_old) < start_threshold_jerk:
         tumbling = True
 
     return tumbling
@@ -153,23 +177,33 @@ def startsTumbling(window):
 def stopsTumbling(window):
     stops_tumbling = False
 
-    jerks_old = np.array([window['a_dot_x'].values[0],
-                         window['a_dot_y'].values[0],
-                         window['a_dot_z'].values[0]])
-    jerks_new = np.array([window['a_dot_x'].values[1],
-                         window['a_dot_y'].values[1],
-                         window['a_dot_z'].values[1]])
+    # jerks_old = np.array([window['a_dot_x'].values[-2],
+    #                      window['a_dot_y'].values[-2],
+    #                      window['a_dot_z'].values[-2]])
+    # jerks_new = np.array([window['a_dot_x'].values[-1],
+    #                      window['a_dot_y'].values[-1],
+    #                      window['a_dot_z'].values[-1]])
+    # jerk_old = np.linalg.norm(jerks_old)
+    jerk_old = window["a_dot"].values[-2]
+    # jerk_new = np.linalg.norm(jerks_new)
+    jerk_new = window["a_dot"].values[-1]
 
-    linearAcceleration_old = np.array([window['accSmooth[0]'].values[0],
-                                   window['accSmooth[1]'].values[0],
-                                   window['accSmooth[2]'].values[0]]) * 9.81 / 2048
-    linearAcceleration_new = np.array([window['accSmooth[0]'].values[1],
-                                   window['accSmooth[1]'].values[1],
-                                   window['accSmooth[2]'].values[1]]) * 9.81 / 2048
+    linacc_old = window["a"].values[-2]
+    linacc_new = window["a"].values[-1]
+
+    # linearAcceleration_old = np.array([window['accSmooth[0]'].values[-2],
+    #                                window['accSmooth[1]'].values[-2],
+    #                                window['accSmooth[2]'].values[-2]]) * 9.81 / 2048
+    # linearAcceleration_new = np.array([window['accSmooth[0]'].values[-1],
+    #                                window['accSmooth[1]'].values[-1],
+    #                                window['accSmooth[2]'].values[-1]]) * 9.81 / 2048
     # print(linearAcceleration, 2000 * 2048 / 9.81)
 
     global betweenPeaks
-    if (np.abs(jerks_new) > stop_threshold_jerk).all() and not (np.abs(jerks_old) < stop_threshold_jerk).all():
+    if abs(jerk_new) > stop_threshold_jerk and abs(jerk_old) < stop_threshold_jerk:
+        stops_tumbling = True
+        betweenPeaks = False
+    if linacc_new > stop_threshold and linacc_old < stop_threshold:
         stops_tumbling = True
         betweenPeaks = False
 
@@ -194,7 +228,7 @@ def derivativeCoefficients(n):
     return np.linalg.solve(T, res)
 
 
-m = 15  # for (m-1) order accurate estimate
+m = 30  # for (m-1) order accurate estimate
 coefficients = np.flip(derivativeCoefficients(m)).reshape(-1, 1)
 f = 1
 
@@ -213,6 +247,9 @@ end_indices = []
 i = -1
 for r in df.rolling(window=windowSize):
     i += 1
+
+    memory = df[:i]
+
     if i % 1000 == 0:
         print(f"{i}/{len(df)}")
     if len(r) != windowSize:
@@ -224,9 +261,9 @@ for r in df.rolling(window=windowSize):
     t = r['time'].values[0] / 1e6
     h = (r['time'].values[-1] - r['time'].values[-2]) * (m + 1) * f / 1e6
 
-    linearAcceleration = np.array([r['accSmooth[0]'].values[-1] * 9.81 / 2048,
-                                   r['accSmooth[1]'].values[-1] * 9.81 / 2048,
-                                   r['accSmooth[2]'].values[-1] * 9.81 / 2048])
+    linearAcceleration = np.array([r['accSmooth[0]'].values[-1],
+                                   r['accSmooth[1]'].values[-1],
+                                   r['accSmooth[2]'].values[-1]]) * 9.81 / 2048
 
     o = np.array([r['gyroADC[0]'].values[-1],
                   r['gyroADC[1]'].values[-1],
@@ -235,6 +272,12 @@ for r in df.rolling(window=windowSize):
     angularVelocitiesX = scipy.signal.savgol_filter(r['gyroADC[0]'].values[:n], window_length=min(n - 1, windowSize), polyorder=min(n, 2)) * math.pi / 180
     angularVelocitiesY = scipy.signal.savgol_filter(r['gyroADC[1]'].values[:n], window_length=min(n - 1, windowSize), polyorder=min(n, 2)) * math.pi / 180
     angularVelocitiesZ = scipy.signal.savgol_filter(r['gyroADC[2]'].values[:n], window_length=min(n - 1, windowSize), polyorder=min(n, 2)) * math.pi / 180
+
+    linearAccelerations = np.array([math.sqrt(r['accSmooth[0]'].values[:n][k]**2 +
+                                              r['accSmooth[1]'].values[:n][k]**2 +
+                                              r['accSmooth[2]'].values[:n][k]**2) for k in range(0, n - 1)]) * 9.81 / 2048
+    filteredAccelerations = scipy.signal.savgol_filter(linearAccelerations, window_length=min(n-1, windowSize),
+                                                       polyorder=min(n, 2))
 
     accelerationsX = scipy.signal.savgol_filter(r['accSmooth[0]'].values[:n], window_length=min(n - 1, windowSize),
                                                polyorder=min(n, 2)) * 9.81 / 2048
@@ -251,28 +294,41 @@ for r in df.rolling(window=windowSize):
                       (angularVelocitiesY[f - 1::f] @ coefficients),
                       (angularVelocitiesZ[f - 1::f] @ coefficients)]).reshape(-1) / (1 / m * h)
 
+    # a_dot = np.array([(accelerationsX[f - 1::f] @ coefficients),
+    #                   (accelerationsY[f - 1::f] @ coefficients),
+    #                   (accelerationsZ[f - 1::f] @ coefficients)]).reshape(-1) / (1 / m * h)
 
-    a_dot = np.array([(accelerationsX[f - 1::f] @ coefficients),
-                      (accelerationsY[f - 1::f] @ coefficients),
-                      (accelerationsZ[f - 1::f] @ coefficients)]).reshape(-1) / (1 / m * h)
-    df['a_dot_x'].values[i] = a_dot[0]
-    df['a_dot_y'].values[i] = a_dot[1]
-    df['a_dot_z'].values[i] = a_dot[2]
+    a_dot = (filteredAccelerations[f - 1::f] @ coefficients).reshape(-1) / (1/m*h)
+    # df['a_dot_x'].values[i] = a_dot[0]
+    # df['a_dot_y'].values[i] = a_dot[1]
+    # df['a_dot_z'].values[i] = a_dot[2]
+    # df['a_dot'].values[i] = np.linalg.norm(a_dot)
+    df['a_dot'].values[i] = a_dot
+    df['a'].values[i] = np.linalg.norm(filteredAccelerations[-1])
 
-    r['a_dot_x'].values[1] = a_dot[0]
-    r['a_dot_y'].values[1] = a_dot[1]
-    r['a_dot_z'].values[1] = a_dot[2]
+    # r['a_dot_x'].values[1] = a_dot[0]
+    # r['a_dot_y'].values[1] = a_dot[1]
+    # r['a_dot_z'].values[1] = a_dot[2]
+    # r['a_dot'].values[1] = np.linalg.norm(a_dot)
+    # r['a'].values[1] = np.linalg.norm(linearAcceleration)
+
+    # memory['a_dot_x'].values[-1] = a_dot[0]
+    # memory['a_dot_y'].values[-1] = a_dot[1]
+    # memory['a_dot_z'].values[-1] = a_dot[2]
+    # memory['a_dot'].values[-1] = np.linalg.norm(a_dot)
+    memory['a_dot'].values[-1] = a_dot
+    memory['a'].values[-1] = np.linalg.norm(filteredAccelerations[-1])
 
     derivs.append(o_dot)
 
     if not wasTumbling:
-        if startsTumbling(r):
+        if startsTumbling(memory):
             wasTumbling = True
             start_indices.append(i)
         else:
             continue
     else:
-        if stopsTumbling(r) and i - start_indices[-1] > 150:
+        if stopsTumbling(memory) and i - start_indices[-1] > 50:
             wasTumbling = False
             end_indices.append(i)
             continue
@@ -343,17 +399,17 @@ for r in df.rolling(window=windowSize):
         # length of the x vector is exactly 1, since that was the constraint we set to keep it from converging to
         # the trivial solution.
         eigen_values, eigen_vectors = np.linalg.eig(ATA)
-        angularVelocitiesX = eigen_vectors[:, eigen_values.argmin()]
+        inertiaCoefficients = eigen_vectors[:, eigen_values.argmin()]
 
         # Assure the result is physically accurate (principal moments of inertia are positive)
         # If they cannot all be, keep the absolute value for the type 2 plot (compromise)
-        if angularVelocitiesX[0] < 0:
-            if not (angularVelocitiesX[2] < 0 and angularVelocitiesX[5] < 0):
-                X = np.abs(angularVelocitiesX)
+        if inertiaCoefficients[0] < 0:
+            if not (inertiaCoefficients[2] < 0 and inertiaCoefficients[5] < 0):
+                X = np.abs(inertiaCoefficients)
             else:
-                X = -angularVelocitiesX
+                X = -inertiaCoefficients
         else:
-            X = angularVelocitiesX
+            X = inertiaCoefficients
 
         if len(A) != 9:
             delta = X - prev_x
@@ -416,19 +472,23 @@ print(start_indices)
 print(end_indices)
 
 fig, ax = plt.subplots()  # Initialise plot
+# ax.plot(df["time"] / 1e6,
+#          df["accSmooth[0]"] * 9.81 / 2048, color="tab:blue", linestyle="dashed")  # Plot measured angular velocity
+# ax.plot(df["time"] / 1e6,
+#          df["accSmooth[1]"] * 9.81 / 2048, color="tab:orange", linestyle="dashed")  # Plot measured angular velocity
+# ax.plot(df["time"] / 1e6,
+#          df["accSmooth[2]"] * 9.81 / 2048, color="tab:green", linestyle="dashed")  # Plot measured angular velocity
 ax.plot(df["time"] / 1e6,
-         df["accSmooth[0]"] * 9.81 / 2048, color="tab:blue", linestyle="dashed")  # Plot measured angular velocity
-ax.plot(df["time"] / 1e6,
-         df["accSmooth[1]"] * 9.81 / 2048, color="tab:orange", linestyle="dashed")  # Plot measured angular velocity
-ax.plot(df["time"] / 1e6,
-         df["accSmooth[2]"] * 9.81 / 2048, color="tab:green", linestyle="dashed")  # Plot measured angular velocity
+         df["a"], color="black", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
 
 # ax.plot(df["time"] / 1e6,
-#          df["a_dot_x"], color="tab:blue", linestyle="dotted")  # Plot measured angular velocity
+#          df["a_dot_x"], color="tab:blue", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
 # ax.plot(df["time"] / 1e6,
-#          df["a_dot_y"], color="tab:orange", linestyle="dotted")  # Plot measured angular velocity
+#          df["a_dot_y"], color="tab:orange", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
 # ax.plot(df["time"] / 1e6,
-#          df["a_dot_z"], color="tab:green", linestyle="dotted")  # Plot measured angular velocity
+#          df["a_dot_z"], color="tab:green", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
+ax.plot(df["time"] / 1e6,
+         df["a_dot"], color="tab:red", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
 
 
 ax.plot(df["time"] / 1e6,
