@@ -238,7 +238,6 @@ wasTumbling = False
 
 times = []
 derivs = []
-n = 0
 
 # print(len(df))
 start_indices = []
@@ -254,9 +253,6 @@ for r in df.rolling(window=windowSize):
         print(f"{i}/{len(df)}")
     if len(r) != windowSize:
         continue
-    elif n <= windowSize:
-        n += 1
-        continue
 
     t = r['time'].values[0] / 1e6
     h = (r['time'].values[-1] - r['time'].values[-2]) * (m + 1) * f / 1e6
@@ -269,22 +265,22 @@ for r in df.rolling(window=windowSize):
                   r['gyroADC[1]'].values[-1],
                   r['gyroADC[2]'].values[-1]]) * math.pi / 180
 
-    angularVelocitiesX = scipy.signal.savgol_filter(r['gyroADC[0]'].values[:n], window_length=min(n - 1, windowSize), polyorder=min(n, 2)) * math.pi / 180
-    angularVelocitiesY = scipy.signal.savgol_filter(r['gyroADC[1]'].values[:n], window_length=min(n - 1, windowSize), polyorder=min(n, 2)) * math.pi / 180
-    angularVelocitiesZ = scipy.signal.savgol_filter(r['gyroADC[2]'].values[:n], window_length=min(n - 1, windowSize), polyorder=min(n, 2)) * math.pi / 180
+    angularVelocitiesX = scipy.signal.savgol_filter(r['gyroADC[0]'].values, window_length=windowSize, polyorder=2) * math.pi / 180
+    angularVelocitiesY = scipy.signal.savgol_filter(r['gyroADC[1]'].values, window_length=windowSize, polyorder=2) * math.pi / 180
+    angularVelocitiesZ = scipy.signal.savgol_filter(r['gyroADC[2]'].values, window_length=windowSize, polyorder=2) * math.pi / 180
 
-    linearAccelerations = np.array([math.sqrt(r['accSmooth[0]'].values[:n][k]**2 +
-                                              r['accSmooth[1]'].values[:n][k]**2 +
-                                              r['accSmooth[2]'].values[:n][k]**2) for k in range(0, n - 1)]) * 9.81 / 2048
-    filteredAccelerations = scipy.signal.savgol_filter(linearAccelerations, window_length=min(n-1, windowSize),
-                                                       polyorder=min(n, 2))
+    linearAccelerations = np.array([math.sqrt(r['accSmooth[0]'].values[k]**2 +
+                                              r['accSmooth[1]'].values[k]**2 +
+                                              r['accSmooth[2]'].values[k]**2) for k in range(0, windowSize)]) * 9.81 / 2048
+    filteredAccelerations = scipy.signal.savgol_filter(linearAccelerations, window_length=windowSize,
+                                                       polyorder=2)
 
-    accelerationsX = scipy.signal.savgol_filter(r['accSmooth[0]'].values[:n], window_length=min(n - 1, windowSize),
-                                               polyorder=min(n, 2)) * 9.81 / 2048
-    accelerationsY = scipy.signal.savgol_filter(r['accSmooth[1]'].values[:n], window_length=min(n - 1, windowSize),
-                                               polyorder=min(n, 2)) * 9.81 / 2048
-    accelerationsZ = scipy.signal.savgol_filter(r['accSmooth[2]'].values[:n], window_length=min(n - 1, windowSize),
-                                               polyorder=min(n, 2)) * 9.81 / 2048
+    accelerationsX = scipy.signal.savgol_filter(r['accSmooth[0]'].values, window_length=windowSize,
+                                               polyorder=2) * 9.81 / 2048
+    accelerationsY = scipy.signal.savgol_filter(r['accSmooth[1]'].values, window_length=windowSize,
+                                               polyorder=2) * 9.81 / 2048
+    accelerationsZ = scipy.signal.savgol_filter(r['accSmooth[2]'].values, window_length=windowSize,
+                                               polyorder=2) * 9.81 / 2048
 
     # angularVelocitiesX = r["gyroADC[0]"].values * math.pi / 180
     # angularVelocitiesY = r["gyroADC[1]"].values * math.pi / 180
@@ -448,10 +444,9 @@ inertia_evals, inertia_evec = np.linalg.eig(inertiaMatrix)
 diag = np.linalg.inv(inertia_evec) @ inertiaMatrix @ inertia_evec
 principal_transform = np.linalg.inv(inertia_evec) @ inertiaMatrix @ inertia_evec @ np.linalg.inv(inertiaMatrix)
 
-theta_x = math.atan2(principal_transform[2, 1], principal_transform[2, 2])
-theta_y = math.atan2(-principal_transform[2, 0],
-                     math.sqrt(principal_transform[2, 1] ** 2 + principal_transform[2, 2] ** 2))
-theta_z = math.atan2(principal_transform[1, 0], principal_transform[0, 0])
+theta_x = math.atan2(-principal_transform[1, 2], principal_transform[2, 2])
+theta_y = math.asin(principal_transform[0, 2])
+theta_z = math.atan2(-principal_transform[0, 1], principal_transform[0, 0])
 print(f"theta_x = {theta_x * 180 / math.pi: 0.2f} deg")
 print(f"theta_y = {theta_y * 180 / math.pi: 0.2f} deg")
 print(f"theta_z = {theta_z * 180 / math.pi: 0.2f} deg")
@@ -510,6 +505,7 @@ plt.show()
 
 # Iterate through the datapoints and simulate
 if 0 <= plotmode <= 2:
+    fig, ax = plt.subplots(3, 2)  # Initialise plot
     for i in range(len(start_indices)):
         # if end_indices[i] - start_indices[i] < 5:
         #     continue
@@ -554,17 +550,21 @@ if 0 <= plotmode <= 2:
 
         Time = np.array(Time)  # Convert time axis to numpy array
 
-        fig, ax = plt.subplots()  # Initialise plot
+        ax = plt.subplot(3, 2, i + 1)
 
-        ax.set_ylabel("Angular velocity (rad/s)")
-        ax.set_xlabel("Time (s)")
+        if i == 2:
+            ax.set_ylabel("Angular velocity (rad/s)")
+        if i == 4 or i == 5:
+            ax.set_xlabel("Time (s)")
+
+        plt.title(f"Throw {i + 1}")
 
         # plotVector(ax, np.array(times) + (df['time'].values[windowSize-1] - df['time'].values[0])/1e6, derivs, labels=[
         #     f"x'",
         #     f"y'",
         #     f"z'"])
 
-        plotVector(ax, Time, angularVelocities)
+        plotVector(ax, Time, angularVelocities, labels=["Simulated ($x$)", "Simulated ($y$)", "Simulated ($z$)"])
         # plotVector(ax, Time, verificationAngularVelocities,
         #            labels=[f"x ({iterations} iter.)",
         #                    f"y ({iterations} iter.)",
@@ -572,18 +572,23 @@ if 0 <= plotmode <= 2:
         # plt.axvline([df["time"].values[iterations - 1] / 1e6], color="gray", linestyle="dashed")
 
         ax.plot(df[start_indices[i]:end_indices[i]]["time"] / 1e6,
-                 df[start_indices[i]:end_indices[i]]["gyroADC[0]"] * math.pi / 180, color="gray",
-                 linestyle="dotted")  # Plot measured angular velocity
+                 df[start_indices[i]:end_indices[i]]["gyroADC[0]"] * math.pi / 180, color="tab:blue",
+                 linestyle="dotted", label="Measured ($x$)")  # Plot measured angular velocity
         ax.plot(df[start_indices[i]:end_indices[i]]["time"] / 1e6,
-                 df[start_indices[i]:end_indices[i]]["gyroADC[1]"] * math.pi / 180, color="gray",
-                 linestyle="dotted")  # Plot measured angular velocity
+                 df[start_indices[i]:end_indices[i]]["gyroADC[1]"] * math.pi / 180, color="tab:orange",
+                 linestyle="dotted", label="Measured ($y$)")  # Plot measured angular velocity
         ax.plot(df[start_indices[i]:end_indices[i]]["time"] / 1e6,
-                 df[start_indices[i]:end_indices[i]]["gyroADC[2]"] * math.pi / 180, color="gray",
-                 linestyle="dotted")  # Plot measured angular velocity
+                 df[start_indices[i]:end_indices[i]]["gyroADC[2]"] * math.pi / 180, color="tab:green",
+                 linestyle="dotted", label="Measured ($z$)")  # Plot measured angular velocity
 
-        plt.legend()
-        # plt.savefig(f"sim-{testfile}-{iterations}.pdf", dpi=500)
-        plt.show()
+    # plt.legend()
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="center right", bbox_to_anchor=(1.2, 0.5))
+    plt.subplots_adjust(hspace=0)
+    # plt.tight_layout()
+    fig.set_size_inches(10, 5)
+    plt.savefig(f"sim-{testfile}-final-{i}.pdf", dpi=500, bbox_inches='tight')
+    plt.show()
 
 sys.exit()
 
