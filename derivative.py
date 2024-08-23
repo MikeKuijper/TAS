@@ -1,7 +1,33 @@
+import sys
+
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import scipy.signal
 
+t = np.arange(0, 11, 1)
+coefs = scipy.signal.savgol_coeffs(4, polyorder=1, pos=3, use="dot")
+
+y = t//3
+print(y)
+
+print(y[-4:])
+y_last = y[-4:].dot(coefs)
+
+y_f_a = scipy.signal.savgol_filter(y[0:-1], window_length=3, polyorder=0)
+y_f_b = scipy.signal.savgol_filter(y[1:], window_length=3, polyorder=0)
+y_f = scipy.signal.savgol_filter(y, window_length=10, polyorder=0)
+
+print(y_f_a)
+print(y_f_b)
+
+print(y_last)
+
+plt.plot(t, y)
+plt.plot(t, y_f)
+plt.show()
+
+sys.exit()
 
 # Returns the required coefficients for an O(n-1) order accurate approximation of the derivative.
 def derivativeCoefficients(n):
