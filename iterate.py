@@ -6,27 +6,37 @@ import math
 import matplotlib.pyplot as plt
 import scipy
 
-testfile = "ThrowsLab"
-df = pd.read_csv(testfile + ".csv")  # Load data file
+testfile = "gyro_spinning"
+df = pd.read_csv("test_csv/" + testfile + ".csv")  # Load data file
+# df = pd.read_csv("gen/" + testfile + ".csv")
+
+Jgyro = 9.42e-8  # kg*m^2
+poles = 12 # [-]
 
 df['a_dot'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
 df['a'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
 
-T = df['time'].values.reshape(-1, 1) / 1e6  # Get times from the data, scaled to seconds
+# T = df['time'].values.reshape(-1, 1)
 
 # Get gyroscope data and convert to rad/s
-omega_x = df['gyroADC[0]'].values.reshape(-1, 1) * math.pi / 180
-omega_y = df['gyroADC[1]'].values.reshape(-1, 1) * math.pi / 180
-omega_z = df['gyroADC[2]'].values.reshape(-1, 1) * math.pi / 180
+df['gyroADC[0]'] = -df['gyroADC[0]'] * math.pi / 180 / 16.384
+df['gyroADC[1]'] = -df['gyroADC[1]'] * math.pi / 180 / 16.384
+df['gyroADC[2]'] = df['gyroADC[2]'] * math.pi / 180 / 16.384
+df['accSmooth[0]'] = df['accSmooth[0]'] * 9.81 / 2084
+df['accSmooth[1]'] = df['accSmooth[1]'] * 9.81 / 2084
+df['accSmooth[2]'] = df['accSmooth[2]'] * 9.81 / 2084
+df['time'] = (df['time'] - df['time'].min()) / 1e6
+df['omegaGyro'] = df['erpm[0]'] * 100 / (poles / 2) * 2 * math.pi / 60
 
-# Redefine T to be uniformly distributed over the domain
-T = np.arange(np.min(T), np.max(T), 0.01).reshape(-1, 1)
+omega_x = df['gyroADC[0]'].values
+omega_y = df['gyroADC[1]'].values
+omega_z = df['gyroADC[2]'].values
 
-acceleration_x = np.array(df['accSmooth[0]'].values) * 9.81 / 2048
-acceleration_y = np.array(df['accSmooth[1]'].values) * 9.81 / 2048
-acceleration_z = np.array(df['accSmooth[2]'].values) * 9.81 / 2048
+acceleration_x = -np.array(df['accSmooth[0]'].values)
+acceleration_y = -np.array(df['accSmooth[1]'].values)
+acceleration_z =  np.array(df['accSmooth[2]'].values)
 
-plotmode = 0  # Define a 'plotmode' for deciding what to plot after the analysis.
+plotmode = 2  # Define a 'plotmode' for deciding what to plot after the analysis.
 
 
 # Arbitrarily define the locations of the coefficients.
@@ -38,11 +48,12 @@ def create_I(x):
 
 
 A = []  # Define the A matrix to be used later
+B = [] # Define the B matrix to be used later
 inertiaMatrix = None  # Define the inertia matrix
 inertiaMatrix_0 = None  # Define a second inertia matrix to be compared to the end result (using all available data)
 inertias = []  # Keep track of the different x vectors
 
-iterations = 100  # Calculate the inertia tensor after 100 iterations
+# iterations = 100  # Calculate the inertia tensor after 100 iterations
 start_time = time.time()  # Find current time to track computation time.
 
 rList = []
@@ -63,16 +74,20 @@ min_omega = 2
 
 betweenPeaks = False
 
+# 7.786
 
 def startsTumbling(window):
+    # return True
     tumbling = False
+    # if 7.786 < window["time"].values[-1] < 7.79: #HARDCODE
+    #     return True
 
     jerk_old = window["a_dot"].values[-2]
     jerk_new = window["a_dot"].values[-1]
 
-    omega_x = window['gyroADC[0]'].values[-1] * math.pi / 180
-    omega_y = window['gyroADC[1]'].values[-1] * math.pi / 180
-    omega_z = window['gyroADC[2]'].values[-1] * math.pi / 180
+    omega_x = window['gyroADC[0]'].values[-1] # [rad/s]
+    omega_y = window['gyroADC[1]'].values[-1] # [rad/s]
+    omega_z = window['gyroADC[2]'].values[-1] # [rad/s]
     omega = math.sqrt(omega_x ** 2 + omega_y ** 2 + omega_z ** 2)
 
     linacc_old = window["a"].values[-2]
@@ -81,7 +96,7 @@ def startsTumbling(window):
     global betweenPeaks
     global startpeak
     global endpeak
-    currentTime = window["time"].values[-1] / 1e6
+    currentTime = window["time"].values[-1]
 
     if linacc_new > start_threshold and linacc_old < start_threshold:
         startpeak = currentTime
@@ -98,6 +113,7 @@ def startsTumbling(window):
 
 
 def stopsTumbling(window):
+    # return False #HARDCODE
     stops_tumbling = False
 
     jerk_old = window["a_dot"].values[-2]
@@ -133,7 +149,7 @@ def derivativeCoefficients(n):
     return np.linalg.solve(T, res)
 
 
-m = 30  # for (m-1) order accurate estimate
+m = 4  # for (m-1) order accurate estimate
 coefficients = np.flip(derivativeCoefficients(m)).reshape(-1, 1)
 f = 1
 
@@ -151,32 +167,46 @@ f_omegaX = []
 f_omegaY = []
 f_omegaZ = []
 
-# test_ox = []
-# test_oy = []
-# test_oz = []
-# test_ox_gt = []
-# test_oy_gt = []
-# test_oz_gt = []
-# test_ax = []
-# test_ay = []
-# test_az = []
-# test_t  = []
 
-polyorder = 2
-savgol_coefficients = scipy.signal.savgol_coeffs(windowSize, polyorder=polyorder, pos=windowSize - 1, use="dot")
+polyorder = 3
+butter_coefs = scipy.signal.butter(2, 100, output="ba", btype="lowpass", fs=4000)
+
+f_omegaX = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_x)
+f_omegaY = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_y)
+f_omegaZ = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_z)
+f_omega_X_dot = scipy.signal.savgol_filter(f_omegaX, window_length=windowSize, polyorder=polyorder, deriv=1, delta=1/4000)
+f_omega_Y_dot = scipy.signal.savgol_filter(f_omegaY, window_length=windowSize, polyorder=polyorder, deriv=1, delta=1/4000)
+f_omega_Z_dot = scipy.signal.savgol_filter(f_omegaZ, window_length=windowSize, polyorder=polyorder, deriv=1, delta=1/4000)
+
+plt.plot(df["time"], omega_x, color="tab:blue", linestyle="solid")
+plt.plot(df["time"], omega_y, color="tab:orange", linestyle="solid")
+plt.plot(df["time"], omega_z, color="tab:green", linestyle="solid")
+# plt.plot(df["time"], f_omegaX, color="tab:blue", linestyle="dotted")
+# plt.plot(df["time"], f_omegaY, color="tab:orange", linestyle="dotted")
+# plt.plot(df["time"], f_omegaZ, color="tab:green", linestyle="dotted")
+plt.plot(df["time"], f_omega_X_dot, color="tab:blue", linestyle="dashed")
+plt.plot(df["time"], f_omega_Y_dot, color="tab:orange", linestyle="dashed")
+plt.plot(df["time"], f_omega_Z_dot, color="tab:green", linestyle="dashed")
+plt.show()
+
+# sys.exit()
+
+
+# savgol_coefficients = scipy.signal.savgol_coeffs(windowSize, polyorder=polyorder, pos=windowSize - 1, use="dot")
 # print(savgol_coefficients)
 
 i = -1
 for window in df.rolling(window=windowSize):
     i += 1
 
-    w_time = window['time'] / 1e6
-    w_linaccX = window['accSmooth[0]'].values * 9.81 / 2048
-    w_linaccY = window['accSmooth[1]'].values * 9.81 / 2048
-    w_linaccZ = window['accSmooth[2]'].values * 9.81 / 2048
-    w_omegaX = window['gyroADC[0]'].values * math.pi / 180
-    w_omegaY = window['gyroADC[1]'].values * math.pi / 180
-    w_omegaZ = window['gyroADC[2]'].values * math.pi / 180
+    w_time = window['time'].values
+    w_linaccX = window['accSmooth[0]'].values
+    w_linaccY = window['accSmooth[1]'].values
+    w_linaccZ = window['accSmooth[2]'].values
+    w_omegaX = -window['gyroADC[0]'].values
+    w_omegaY = -window['gyroADC[1]'].values
+    w_omegaZ = window['gyroADC[2]'].values
+    omegaGyro = window['omegaGyro'].values
 
     memory = df[:i]
 
@@ -184,10 +214,18 @@ for window in df.rolling(window=windowSize):
         print(f"{i}/{len(df)}")
     if len(window) != windowSize:
         continue
-    # if i + 1 == windowSize:
-    f_omegaX = scipy.signal.savgol_filter(w_omegaX, window_length=windowSize, polyorder=polyorder)
-    f_omegaY = scipy.signal.savgol_filter(w_omegaY, window_length=windowSize, polyorder=polyorder)
-    f_omegaZ = scipy.signal.savgol_filter(w_omegaZ, window_length=windowSize, polyorder=polyorder)
+    if i + 1 == windowSize:
+        # f_omegaX = scipy.signal.savgol_filter(w_omegaX, window_length=windowSize, polyorder=polyorder)
+        # f_omegaY = scipy.signal.savgol_filter(w_omegaY, window_length=windowSize, polyorder=polyorder)
+        # f_omegaZ = scipy.signal.savgol_filter(w_omegaZ, window_length=windowSize, polyorder=polyorder)
+
+        f_omegaX = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], w_omegaX)
+        f_omegaY = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], w_omegaY)
+        f_omegaZ = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], w_omegaZ)
+
+    # f_omegaX = w_omegaX
+    # f_omegaY = w_omegaY
+    # f_omegaZ = w_omegaZ
     # else:
     #     x = w_angularAccelerations0.dot(savgol_coefficients)
     #     f_angularVelocitiesX = np.append(f_angularVelocitiesX, x)
@@ -218,8 +256,8 @@ for window in df.rolling(window=windowSize):
     #     angularVelocitiesY = f_angularVelocitiesY_groundtruth
     #     angularVelocitiesZ = f_angularVelocitiesZ_groundtruth
 
-    t = w_time.values[0]
-    h = (w_time.values[-1] - w_time.values[-2]) * (m + 1) * f
+    t = w_time[0]
+    h = (w_time[-1] - w_time[-2]) * (m + 1) * f
 
     vec_linacc = np.array([w_linaccX[-1],
                            w_linaccY[-1],
@@ -230,11 +268,23 @@ for window in df.rolling(window=windowSize):
     abs_linacc = np.array([math.sqrt(w_linaccX[k] ** 2 +
                                      w_linaccY[k] ** 2 +
                                      w_linaccZ[k] ** 2) for k in range(0, windowSize)])
-    f_abs_linacc = scipy.signal.savgol_filter(abs_linacc, window_length=windowSize, polyorder=2)
+    f_abs_linacc = scipy.signal.savgol_filter(abs_linacc, window_length=windowSize, polyorder=polyorder)
 
+    # vec_omega_dot = np.array([scipy.signal.savgol_filter(f_omegaX,
+    #                                                      window_length=windowSize,
+    #                                                      polyorder=polyorder, deriv=1, delta=w_time[1]-w_time[0])[-1],
+    #                           scipy.signal.savgol_filter(f_omegaY,
+    #                                                      window_length=windowSize,
+    #                                                      polyorder=polyorder, deriv=1, delta=w_time[1] - w_time[0])[-1],
+    #                           scipy.signal.savgol_filter(f_omegaZ,
+    #                                                      window_length=windowSize,
+    #                                                      polyorder=polyorder, deriv=1, delta=w_time[1] - w_time[0])[-1]])
     vec_omega_dot = np.array([(f_omegaX[f - 1::f] @ coefficients),
                               (f_omegaY[f - 1::f] @ coefficients),
                               (f_omegaZ[f - 1::f] @ coefficients)]).reshape(-1) / (1 / m * h)
+    # vec_omega_dot = np.array([window['gyroACC[0]'].values[-1],
+    #                           window['gyroACC[1]'].values[-1],
+    #                           window['gyroACC[2]'].values[-1]]).reshape(-1)
     # if i + 1 != windowSize:
     #     test_ax.append(o_dot[0])
     #     test_ay.append(o_dot[1])
@@ -256,14 +306,14 @@ for window in df.rolling(window=windowSize):
         else:
             continue
     else:
-        if stopsTumbling(memory) and i - start_indices[-1] > 50:
+        if stopsTumbling(memory) and i - start_indices[-1] > 5000: #HARDCODE : 5000 used to be 50
             wasTumbling = False
             end_indices.append(i)
             continue
-        elif i - start_indices[-1] > 500:
-            wasTumbling = False
-            end_indices.append(i)
-            continue
+        # elif i - start_indices[-1] > 500:
+        #     wasTumbling = False
+        #     end_indices.append(i)
+        #     continue
 
     times.append(t)
 
@@ -281,7 +331,7 @@ for window in df.rolling(window=windowSize):
     a = np.array(cg_matrix_A).reshape(-1, 3)
     b = np.array(cg_matrix_B).reshape(-1, 1)
     window = np.linalg.inv(a.T @ a) @ a.T @ b
-    print(window)
+    # print(window)
 
     vec_omega_dot = vec_omega_dot.reshape(-1)
     vec_omega = vec_omega.reshape(-1)
@@ -306,6 +356,16 @@ for window in df.rolling(window=windowSize):
     A.append(zeta_Z)
     zeta = np.matrix([zeta_X, zeta_Y, zeta_Z]).reshape((3, 6))
 
+    gyroAngularMomenta = Jgyro * omegaGyro
+    gyroAngularMomentum = gyroAngularMomenta[-1]
+    gyroAngularAcceleration = scipy.signal.savgol_filter(gyroAngularMomenta, window_length=windowSize, polyorder=polyorder, deriv=1, delta=w_time[-1] - w_time[-2])[-1]
+
+    gyroAngularMomentumVec = np.array([0., 0., -gyroAngularMomentum])
+    gyroAngularAccelerationVec = np.array([0., 0., -gyroAngularAcceleration])
+
+    beta = -np.cross(vec_omega, gyroAngularMomentumVec) - gyroAngularAccelerationVec
+    B.extend(beta)
+
     ATA_delta = np.matmul(zeta.T, zeta)
     ATA += ATA_delta
 
@@ -321,14 +381,19 @@ for window in df.rolling(window=windowSize):
         # to finding the eigenvector with the smallest eigenvalue of A transpose times A. Note that this way, the
         # length of the x vector is exactly 1, since that was the constraint we set to keep it from converging to
         # the trivial solution.
-        eigen_values, eigen_vectors = np.linalg.eig(ATA)
-        inertiaCoefficients = eigen_vectors[:, eigen_values.argmin()]
+        # eigen_values, eigen_vectors = np.linalg.eig(ATA)
+        # inertiaCoefficients = eigen_vectors[:, eigen_values.argmin()]
+
+        # print(np.matrix(A).shape, np.matrix(B).shape)
+        inertiaCoefficients, res, rank, s = np.linalg.lstsq(A, B, rcond=None)
+        # print("res", res/len(A))
+        # print(inertiaCoefficients)
 
         # Assure the result is physically accurate (principal moments of inertia are positive)
         # If they cannot all be, keep the absolute value for the type 2 plot (compromise)
         if inertiaCoefficients[0] < 0:
             if not (inertiaCoefficients[2] < 0 and inertiaCoefficients[5] < 0):
-                X = np.abs(inertiaCoefficients)
+                X = np.array([abs(inertiaCoefficients[0]), inertiaCoefficients[1], abs(inertiaCoefficients[2]), inertiaCoefficients[3], inertiaCoefficients[4], abs(inertiaCoefficients[5])])
             else:
                 X = -inertiaCoefficients
         else:
@@ -339,16 +404,17 @@ for window in df.rolling(window=windowSize):
             error_estimate = np.linalg.norm(ATA_delta)
             x_errors.append(error_estimate)
 
-            if (error_estimate <= 10e-5 and not has_converged):
-                inertiaMatrix_0 = create_I(X)
-                iterations = len(A) // 6
-                print("Test took %s seconds to converge at %i timesteps" % (time.time() - start_time, iterations))
-                has_converged = True
+            # if (error_estimate <= 10e-5 and not has_converged):
+            #     inertiaMatrix_0 = create_I(X)
+            #     iterations = len(A) // 6
+            #     print("Test took %s seconds to converge at %i timesteps" % (time.time() - start_time, iterations))
+            #     has_converged = True
             prev_x = X
         else:
             prev_x = X
 
         inertias.extend(X)
+        # print(X / np.linalg.norm(X))
         inertiaMatrix = create_I(X)
 
 if not has_converged:
@@ -357,6 +423,26 @@ if not has_converged:
     print("Test took %s seconds to converge at %i" % (time.time() - start_time, iterations))
 print("Full took %s seconds" % (time.time() - start_time))
 print("I =", inertiaMatrix)  # Output calculated inertia matrix
+
+# true_x = [1, 0, 10, 0, 0, 10]
+# Itrue = create_I(np.array(true_x) / np.linalg.norm(true_x))
+# print("I_true =", Itrue)
+
+# eval, evec = np.linalg.eig(inertiaMatrix)
+# Idiag = (np.linalg.inv(evec) @ inertiaMatrix @ evec).round(15)
+# print("I_diag =", Idiag)
+
+# print("I_delta =", inertiaMatrix - Itrue)
+
+# print("I_xx =", inertiaMatrix[0,0])
+# print("I_yy =", inertiaMatrix[1,1])
+# print("I_zz =", inertiaMatrix[2,2])
+# xyz = np.array([inertiaMatrix[0,0], inertiaMatrix[1,1], inertiaMatrix[2,2]])
+# print(xyz)
+# trueXYZ = np.array([2., 5., 4.])
+# trueXYZ /= np.linalg.norm(trueXYZ)
+# print(trueXYZ)
+
 
 
 # === Verification by simulation ===
@@ -378,16 +464,30 @@ fig, ax = plt.subplots()  # Initialise plot
 #          df["a"], color="black", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
 # ax.plot(df["time"] / 1e6,
 #          df["a_dot"], color="tab:red", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
+#
+# ax.plot(df["time"] / 1e6,
+#         df["gyroADC[0]"] * math.pi / 180, linestyle="dotted", color="tab:blue",
+#         alpha=0.8)  # Plot measured angular velocity
+# ax.plot(df["time"] / 1e6,
+#         df["gyroADC[1]"] * math.pi / 180, linestyle="dotted", color="tab:orange",
+#         alpha=0.8)  # Plot measured angular velocity
+# ax.plot(df["time"] / 1e6,
+#         df["gyroADC[2]"] * math.pi / 180, linestyle="dotted", color="tab:green",
+#         alpha=0.8)  # Plot measured angular velocity
 
-ax.plot(df["time"] / 1e6,
-        df["gyroADC[0]"] * math.pi / 180, linestyle="dotted", color="tab:blue",
-        alpha=0.8)  # Plot measured angular velocity
-ax.plot(df["time"] / 1e6,
-        df["gyroADC[1]"] * math.pi / 180, linestyle="dotted", color="tab:orange",
-        alpha=0.8)  # Plot measured angular velocity
-ax.plot(df["time"] / 1e6,
-        df["gyroADC[2]"] * math.pi / 180, linestyle="dotted", color="tab:green",
-        alpha=0.8)  # Plot measured angular velocity
+# ax.plot(df["time"],
+#          df["a"], color="black", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
+# ax.plot(df["time"],
+#          df["a_dot"], color="tab:red", linestyle="dotted", alpha=0.4)  # Plot measured angular velocity
+
+ax.plot((df["time"].values - df["time"].values[0]),
+        df["gyroADC[0]"], color="tab:blue")  # Plot measured angular velocity
+ax.plot((df["time"].values - df["time"].values[0]),
+        df["gyroADC[1]"], color="tab:orange")  # Plot measured angular velocity
+ax.plot((df["time"].values - df["time"].values[0]),
+        df["gyroADC[2]"], color="tab:green")  # Plot measured angular velocity
+ax.plot((df["time"].values - df["time"].values[0]),
+        df["erpm[0]"] / 400, linestyle="dotted", color="tab:red")
 
 # ax.plot(test_t, test_ox, alpha=0.8, color="tab:blue")
 # ax.plot(test_t, test_oy, alpha=0.8, color="tab:orange")
@@ -403,15 +503,16 @@ ax.plot(df["time"] / 1e6,
 
 
 for j in start_indices:
-    plt.axvline(df["time"].values[j] / 1e6, color="gray", linestyle="dashed")
+    # plt.axvline(df["time"].values[j] / 1e6, color="gray", linestyle="dashed")
+    plt.axvline(df["time"].values[j], color="gray", linestyle="dashed")
 for j in end_indices:
-    plt.axvline(df["time"].values[j] / 1e6, color="gray", linestyle="dashed")
+    plt.axvline(df["time"].values[j], color="gray", linestyle="dashed")
 
 plt.show()
 
 # sys.exit()
 
-# Iterate through the datapoints and simulate
+# # Iterate through the datapoints and simulate
 if 0 <= plotmode <= 2:
     fig, ax = plt.subplots(3, 2)  # Initialise plot
     for i in range(len(start_indices)):
@@ -419,41 +520,51 @@ if 0 <= plotmode <= 2:
 
         omega_0 = np.array([df["gyroADC[0]"].values[start_indices[i]],
                             df["gyroADC[1]"].values[start_indices[i]],
-                            df["gyroADC[2]"].values[start_indices[i]]]) * math.pi / 180
+                            df["gyroADC[2]"].values[start_indices[i]]])
         omega = omega_0
         angularVelocities = []
 
         verificationOmega = omega_0
         verificationAngularVelocities = []
+
+        end_indices.append(len(df)) # HARDCODE
         for window in df[start_indices[i]:end_indices[i]].rolling(window=2):
             if len(window) < 2:
                 continue  # Only run if the window is filled
 
             # Initialise begin and end times for interval
-            t_1 = window['time'].values[0] / 1e6
-            t_2 = window['time'].values[1] / 1e6
+            t_1 = window['time'].values[0]
+            t_2 = window['time'].values[1]
             dt = t_2 - t_1
+            # print(dt)
 
-            ddt = dt / 100  # Iterate 2000 times between datapoints
+            ddt = dt / 100  # Iterate N times between datapoints
 
             inv = np.linalg.inv(inertiaMatrix)
-            inv_f = np.linalg.inv(inertiaMatrix_0)
+            loopIt = window['loopIteration'].values[-1]
+            angularMomentumGyro = window['omegaGyro'].values[-1] * Jgyro ## HERE!!
+            angularAccelerationGyro = scipy.signal.savgol_filter(df['omegaGyro'].values[:loopIt] * Jgyro, window_length=windowSize, polyorder=polyorder, deriv=1, delta=dt)[-1]
+            angularMomentumGyroVec = np.array([0., 0., -angularMomentumGyro])
+            angularAccelerationGyroVec = np.array([0., 0., -angularAccelerationGyro])
+            # print(omegaGyro, omegaGyroDot)
             for t in np.arange(t_1, t_2, ddt):
                 # Simulate by solving the Euler rotation equation for the angular acceleration and using it
                 # to numerically integrate the angular velocity
-                omega_dot = np.matmul(inv, -np.cross(omega, np.matmul(inertiaMatrix, omega)))
+                omega_dot = np.matmul(inv, -np.cross(omega, np.matmul(inertiaMatrix, omega)) - np.cross(omega, angularMomentumGyroVec) - angularAccelerationGyroVec)
+                # print(-np.cross(omega, omegaGyroVec) - omegaGyroDotVec)
                 omega = omega + omega_dot * ddt
 
-                omega_dot_f = np.matmul(inv_f,
-                                        -np.cross(verificationOmega, np.matmul(inertiaMatrix_0, verificationOmega)))
-                verificationOmega = verificationOmega + omega_dot_f * ddt
+                # omega_dot_f = np.matmul(inv_f,
+                #                         -np.cross(verificationOmega, np.matmul(inertiaMatrix_0, verificationOmega)) )
+                # verificationOmega = verificationOmega + omega_dot_f * ddt
 
             angularVelocities.append(omega)
             verificationAngularVelocities.append(omega)
             Time.append(t_1)
 
         Time = np.array(Time)  # Convert time axis to numpy array
-        ax = plt.subplot(3, 2, i + 1)
+        # ax = plt.subplot(3, 2, i + 1)
+        ax = plt.subplot(1, 1, 1)
 
         if i == 2:
             ax.set_ylabel("Angular velocity (rad/s)")
@@ -463,14 +574,18 @@ if 0 <= plotmode <= 2:
         plt.title(f"Throw {i + 1}")
         plotVector(ax, Time, angularVelocities, labels=["Simulated ($x$)", "Simulated ($y$)", "Simulated ($z$)"])
 
-        ax.plot(df[start_indices[i]:end_indices[i]]["time"] / 1e6,
-                df[start_indices[i]:end_indices[i]]["gyroADC[0]"] * math.pi / 180, color="tab:blue",
+        ax.plot(df[start_indices[i]:end_indices[i]]["time"],
+                df[start_indices[i]:end_indices[i]]["gyroADC[0]"], color="tab:blue",
                 linestyle="dotted", label="Measured ($x$)")  # Plot measured angular velocity
-        ax.plot(df[start_indices[i]:end_indices[i]]["time"] / 1e6,
-                df[start_indices[i]:end_indices[i]]["gyroADC[1]"] * math.pi / 180, color="tab:orange",
+        ax.plot(df[start_indices[i]:end_indices[i]]["time"],
+                df[start_indices[i]:end_indices[i]]["gyroADC[1]"], color="tab:orange",
                 linestyle="dotted", label="Measured ($y$)")  # Plot measured angular velocity
-        ax.plot(df[start_indices[i]:end_indices[i]]["time"] / 1e6,
-                df[start_indices[i]:end_indices[i]]["gyroADC[2]"] * math.pi / 180, color="tab:green",
+        ax.plot(df[start_indices[i]:end_indices[i]]["time"],
+                df[start_indices[i]:end_indices[i]]["gyroADC[2]"], color="tab:green",
+                linestyle="dotted", label="Measured ($z$)")  # Plot measured angular velocity
+
+        ax.plot(df[start_indices[i]:end_indices[i]]["time"],
+                df[start_indices[i]:end_indices[i]]["erpm[0]"] / 400, color="tab:red",
                 linestyle="dotted", label="Measured ($z$)")  # Plot measured angular velocity
 
     handles, labels = ax.get_legend_handles_labels()
@@ -479,8 +594,8 @@ if 0 <= plotmode <= 2:
     fig.set_size_inches(10, 5)
     plt.savefig(f"sim-{testfile}-final-{i}.pdf", dpi=500, bbox_inches='tight')
     plt.show()
-
-sys.exit()
+#
+# sys.exit()
 
 # Matplotlib pizazz
 if plotmode == 0:
@@ -491,7 +606,7 @@ if plotmode == 0:
                labels=[f"x ({iterations} iter.)",
                        f"y ({iterations} iter.)",
                        f"z ({iterations} iter.)"])
-    plt.axvline([df["time"].values[iterations - 1] / 1e6], color="gray", linestyle="dashed")
+    plt.axvline([df["time"].values[iterations - 1]], color="gray", linestyle="dashed")
 
     plt.legend()
     plt.savefig(f"sim-{testfile}-{iterations}.pdf", dpi=500)
@@ -510,16 +625,31 @@ elif plotmode == 1:
     plt.plot(error)
     plt.savefig(f"error-{testfile}.pdf", dpi=500)
 elif plotmode == 2:
-    plt.plot(inertias[0::6], label=r"$I_{xx}$")
-    plt.plot(inertias[2::6], label=r"$I_{yy}$")
-    plt.plot(inertias[5::6], label=r"$I_{zz}$")
-    plt.plot(inertias[1::6], label=r"$I_{xy}$")
-    plt.plot(inertias[3::6], label=r"$I_{xz}$")
-    plt.plot(inertias[4::6], label=r"$I_{yz}$")
+    def square(x):
+        return abs(x)
+    Itrue = np.zeros(9).reshape(3,3)
+    plt.plot(square(np.array(inertias[0::6]) - Itrue[0,0]), label=r"$I_{xx}$")
+    plt.plot(square(np.array(inertias[2::6]) - Itrue[1,1]), label=r"$I_{yy}$")
+    plt.plot(square(np.array(inertias[5::6]) - Itrue[2,2]), label=r"$I_{zz}$")
+    plt.plot(square(np.array(inertias[1::6]) - Itrue[0,1]), label=r"$I_{xy}$")
+    plt.plot(square(np.array(inertias[3::6]) - Itrue[0,2]), label=r"$I_{xz}$")
+    plt.plot(square(np.array(inertias[4::6]) - Itrue[1,2]), label=r"$I_{yz}$")
+
+    # error_array = [
+    #     inertias[0::6][-1] - Itrue[0,0],
+    #     inertias[2::6][-1] - Itrue[1,1],
+    #     inertias[5::6][-1] - Itrue[2,2],
+    #     inertias[1::6][-1] - Itrue[0,1],
+    #     inertias[3::6][-1] - Itrue[0,2],
+    #     inertias[4::6][-1] - Itrue[1,2],
+    # ]
+    # print("VECTORIAL ERROR", np.linalg.norm(np.array(error_array)))
+
     plt.subplots_adjust(right=0.85)
     plt.legend(bbox_to_anchor=(1.04, 0.5), loc="center left", borderaxespad=0)
-    ax.set_ylabel("Relative inertia (-)")
-    ax.set_xlabel("Sample size (-)")
+    plt.ylabel("Relative inertia error (-)")
+    plt.xlabel("Sample size (-)")
+    plt.yscale("log")
 
     plt.savefig(f"individuals-{testfile}.pdf", bbox_inches="tight", dpi=500)
 elif plotmode == 3:
@@ -583,7 +713,7 @@ elif plotmode == 5:
     plt.tight_layout()
     plt.savefig(f"la-{testfile}.pdf", bbox_inches="tight", dpi=500)
 elif plotmode == 6:
-    T = df['time'].values.reshape(-1, 1) / 1e6  # Get times from the data, scaled to seconds
+    T = df['time'].values.reshape(-1, 1)  # Get times from the data, scaled to seconds
     x_sp = np.abs(np.fft.fft(acceleration_x))
     y_sp = np.abs(np.fft.fft(acceleration_y))
     z_sp = np.abs(np.fft.fft(acceleration_z))

@@ -46,8 +46,8 @@ def derivativeCoefficients(n):
     return np.linalg.solve(T, res)
 
 
-h = 1
-m = 4       # for m-1 order accuracy
+h = 2
+m = 3       # for m-1 order accuracy
 coefficients = derivativeCoefficients(m)
 print(coefficients)
 
@@ -67,7 +67,8 @@ X_test = np.array([x_0 - h * i / m for i in range(m)])
 Y_test = f(X_test)
 # print(x_test)
 
-deriv = (Y_test @ coefficients.reshape(-1, 1)) / (1/m*h)
+# deriv = (Y_test @ coefficients.reshape(-1, 1)) / (1/m*h)
+deriv = Y_test @ coefficients.reshape(-1, 1) * m / h
 print(deriv[0])
 
 y_grad = deriv * X + Y_test[0] - deriv * X_test[0]
