@@ -10,7 +10,7 @@ testfile = "gyro_spinning"
 df = pd.read_csv("test_csv/" + testfile + ".csv")  # Load data file
 # df = pd.read_csv("gen/" + testfile + ".csv")
 
-Jgyro = 9.42e-8  # kg*m^2
+Jgyro = 9.42e-8 # kg*m^2
 poles = 12 # [-]
 
 df['a_dot'] = pd.Series(np.zeros(len(df["time"])), index=df.index)
@@ -149,7 +149,8 @@ def derivativeCoefficients(n):
     return np.linalg.solve(T, res)
 
 
-m = 4  # for (m-1) order accurate estimate
+polyorder = 1
+m = 3  # for (m-1) order accurate estimate
 coefficients = np.flip(derivativeCoefficients(m)).reshape(-1, 1)
 f = 1
 
@@ -168,15 +169,22 @@ f_omegaY = []
 f_omegaZ = []
 
 
-polyorder = 3
-butter_coefs = scipy.signal.butter(2, 100, output="ba", btype="lowpass", fs=4000)
+filter_freq = 600
+butter_coefs = scipy.signal.butter(2, filter_freq, output="ba", btype="lowpass", fs=4000)
+butter_low_coefs = scipy.signal.butter(2, filter_freq/4, output="ba", btype="lowpass", fs=4000)
+butter_gyro_coefs = scipy.signal.butter(2, 20, output="ba", btype="lowpass", fs=4000)
 
-f_omegaX = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_x)
-f_omegaY = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_y)
-f_omegaZ = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_z)
+f_omegaX     = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_x)
+f_omegaY     = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_y)
+f_omegaZ     = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], omega_z)
+f_omega_gyro = scipy.signal.lfilter(butter_gyro_coefs[0], butter_gyro_coefs[1], df['omegaGyro'].values)
+
 f_omega_X_dot = scipy.signal.savgol_filter(f_omegaX, window_length=windowSize, polyorder=polyorder, deriv=1, delta=1/4000)
 f_omega_Y_dot = scipy.signal.savgol_filter(f_omegaY, window_length=windowSize, polyorder=polyorder, deriv=1, delta=1/4000)
 f_omega_Z_dot = scipy.signal.savgol_filter(f_omegaZ, window_length=windowSize, polyorder=polyorder, deriv=1, delta=1/4000)
+f_omega_X_dot = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], f_omega_X_dot)
+f_omega_Y_dot = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], f_omega_Y_dot)
+f_omega_Z_dot = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], f_omega_Z_dot)
 
 plt.plot(df["time"], omega_x, color="tab:blue", linestyle="solid")
 plt.plot(df["time"], omega_y, color="tab:orange", linestyle="solid")
@@ -187,6 +195,8 @@ plt.plot(df["time"], omega_z, color="tab:green", linestyle="solid")
 plt.plot(df["time"], f_omega_X_dot, color="tab:blue", linestyle="dashed")
 plt.plot(df["time"], f_omega_Y_dot, color="tab:orange", linestyle="dashed")
 plt.plot(df["time"], f_omega_Z_dot, color="tab:green", linestyle="dashed")
+
+plt.plot(df["time"], f_omega_gyro, color="tab:red", linestyle="dashed")
 plt.show()
 
 # sys.exit()
@@ -222,6 +232,20 @@ for window in df.rolling(window=windowSize):
         f_omegaX = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], w_omegaX)
         f_omegaY = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], w_omegaY)
         f_omegaZ = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], w_omegaZ)
+        f_omegaX = scipy.signal.savgol_filter(f_omegaX, window_length=windowSize, polyorder=polyorder)
+        f_omegaY = scipy.signal.savgol_filter(f_omegaY, window_length=windowSize, polyorder=polyorder)
+        f_omegaZ = scipy.signal.savgol_filter(f_omegaZ, window_length=windowSize, polyorder=polyorder)
+
+        dt = w_time[-1] - w_time[-2]
+        f_omega_x_dot = scipy.signal.savgol_filter(f_omegaX, window_length=windowSize, polyorder=polyorder, deriv=1,
+                                                   delta=dt)
+        f_omega_y_dot = scipy.signal.savgol_filter(f_omegaY, window_length=windowSize, polyorder=polyorder, deriv=1,
+                                                   delta=dt)
+        f_omega_z_dot = scipy.signal.savgol_filter(f_omegaZ, window_length=windowSize, polyorder=polyorder, deriv=1,
+                                                   delta=dt)
+        f_omega_x_dot = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], f_omega_x_dot)
+        f_omega_y_dot = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], f_omega_y_dot)
+        f_omega_z_dot = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], f_omega_z_dot)
 
     # f_omegaX = w_omegaX
     # f_omegaY = w_omegaY
@@ -279,9 +303,15 @@ for window in df.rolling(window=windowSize):
     #                           scipy.signal.savgol_filter(f_omegaZ,
     #                                                      window_length=windowSize,
     #                                                      polyorder=polyorder, deriv=1, delta=w_time[1] - w_time[0])[-1]])
-    vec_omega_dot = np.array([(f_omegaX[f - 1::f] @ coefficients),
-                              (f_omegaY[f - 1::f] @ coefficients),
-                              (f_omegaZ[f - 1::f] @ coefficients)]).reshape(-1) / (1 / m * h)
+
+    # vec_omega_dot = np.array([(f_omegaX[f - 1::f] @ coefficients),
+    #                           (f_omegaY[f - 1::f] @ coefficients),
+    #                           (f_omegaZ[f - 1::f] @ coefficients)]).reshape(-1) / (1 / m * h)
+
+    vec_omega_dot = np.array([f_omega_x_dot[-1],
+                              f_omega_y_dot[-1],
+                              f_omega_z_dot[-1]])
+
     # vec_omega_dot = np.array([window['gyroACC[0]'].values[-1],
     #                           window['gyroACC[1]'].values[-1],
     #                           window['gyroACC[2]'].values[-1]]).reshape(-1)
@@ -302,7 +332,7 @@ for window in df.rolling(window=windowSize):
     if not wasTumbling:
         if startsTumbling(memory):
             wasTumbling = True
-            start_indices.append(i)
+            start_indices.append(i + 100) # HARDCODE
         else:
             continue
     else:
@@ -357,13 +387,15 @@ for window in df.rolling(window=windowSize):
     zeta = np.matrix([zeta_X, zeta_Y, zeta_Z]).reshape((3, 6))
 
     gyroAngularMomenta = Jgyro * omegaGyro
-    gyroAngularMomentum = gyroAngularMomenta[-1]
-    gyroAngularAcceleration = scipy.signal.savgol_filter(gyroAngularMomenta, window_length=windowSize, polyorder=polyorder, deriv=1, delta=w_time[-1] - w_time[-2])[-1]
+    gyroAngularMomenta = scipy.signal.lfilter(butter_gyro_coefs[0], butter_gyro_coefs[1], gyroAngularMomenta)
+    gyroAngularAcceleration = scipy.signal.savgol_filter(gyroAngularMomenta, window_length=windowSize, polyorder=polyorder, deriv=1, delta=w_time[-1] - w_time[-2])
+    angularAccelerationGyros = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], gyroAngularAcceleration)
 
-    gyroAngularMomentumVec = np.array([0., 0., -gyroAngularMomentum])
-    gyroAngularAccelerationVec = np.array([0., 0., -gyroAngularAcceleration])
+    gyroAngularMomentumVec = np.array([0., 0., -gyroAngularMomenta[-1]])
+    gyroAngularAccelerationVec = np.array([0., 0., -angularAccelerationGyros[-1]])
 
     beta = -np.cross(vec_omega, gyroAngularMomentumVec) - gyroAngularAccelerationVec
+    # print(beta)
     B.extend(beta)
 
     ATA_delta = np.matmul(zeta.T, zeta)
@@ -514,7 +546,8 @@ plt.show()
 
 # # Iterate through the datapoints and simulate
 if 0 <= plotmode <= 2:
-    fig, ax = plt.subplots(3, 2)  # Initialise plot
+    # fig, ax = plt.subplots(3, 2)  # Initialise plot
+    fig, ax = plt.subplots(1, 1)  # Initialise plot
     for i in range(len(start_indices)):
         Time = []
 
@@ -542,11 +575,16 @@ if 0 <= plotmode <= 2:
 
             inv = np.linalg.inv(inertiaMatrix)
             loopIt = window['loopIteration'].values[-1]
-            angularMomentumGyro = window['omegaGyro'].values[-1] * Jgyro ## HERE!!
-            angularAccelerationGyro = scipy.signal.savgol_filter(df['omegaGyro'].values[:loopIt] * Jgyro, window_length=windowSize, polyorder=polyorder, deriv=1, delta=dt)[-1]
-            angularMomentumGyroVec = np.array([0., 0., -angularMomentumGyro])
-            angularAccelerationGyroVec = np.array([0., 0., -angularAccelerationGyro])
-            # print(omegaGyro, omegaGyroDot)
+            angularMomentumGyros = window['omegaGyro'].values * Jgyro ## HERE!!
+
+            omegaGyros = scipy.signal.lfilter(butter_coefs[0], butter_coefs[1], df["omegaGyro"].values[:loopIt])
+            angularAccelerationGyros = scipy.signal.savgol_filter(omegaGyros * Jgyro, window_length=windowSize,
+                                                                  polyorder=polyorder, deriv=1, delta=dt)
+            # angularAccelerationGyros = scipy.signal.lfilter(butter_low_coefs[0], butter_low_coefs[1], angularAccelerationGyros)
+
+            angularMomentumGyroVec = np.array([0., 0., -angularMomentumGyros[-1]])
+            angularAccelerationGyroVec = np.array([0., 0., -angularAccelerationGyros[-1]])
+
             for t in np.arange(t_1, t_2, ddt):
                 # Simulate by solving the Euler rotation equation for the angular acceleration and using it
                 # to numerically integrate the angular velocity
@@ -587,6 +625,8 @@ if 0 <= plotmode <= 2:
         ax.plot(df[start_indices[i]:end_indices[i]]["time"],
                 df[start_indices[i]:end_indices[i]]["erpm[0]"] / 400, color="tab:red",
                 linestyle="dotted", label="Measured ($z$)")  # Plot measured angular velocity
+
+        break
 
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc="center right", bbox_to_anchor=(1.15, 0.5))
